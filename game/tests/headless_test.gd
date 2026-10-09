@@ -10043,8 +10043,13 @@ func t_codex() -> void:
 	## 判据没有了被判对象。要重新上闸的话改 `cw_codex.gd:119` 一行，判据照 S6b 那三条抄回来
 	book2.queue_free()
 	CWGuideProgress.clear()   ## 别把解锁集脏到同一分片里后面那些开书 / 按进度开局的测试
+	## 「细胞图鉴」大标题 / 副标题只属于细胞图鉴（10-09：PR #70 起知识之书顶上也写「细胞图鉴」、副标题被章标题压住）
+	book.open()
+	check(not book._atlas_head.visible and not book._atlas_sub.visible and book._title.visible,
+		"★ 知识之书：顶上不出「细胞图鉴」大标题与副标题（只有章标题）")
 	## 细胞图鉴使用更宽的独立画布，知识之书切回时恢复原比例。
 	book.open_atlas()
+	check(book._atlas_head.visible and book._atlas_sub.visible, "★ 细胞图鉴：大标题与副标题亮着")
 	check(book._atlas_mode and book._panel.size == Vector2(CWCodex.ATLAS_W, CWCodex.ATLAS_H)
 		and book._panel.position == Vector2(70, 20)
 		and book._body.size == Vector2(CWCodex.ATLAS_W - CWCodex.PAD * 2,

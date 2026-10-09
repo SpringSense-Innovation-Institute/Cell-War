@@ -77,6 +77,10 @@ var _panel: Control
 var _body: Control
 var _content: Control
 var _title: Label
+## 「细胞图鉴」大标题与副标题：**只属于细胞图鉴**。PR #70（b517de9）把它们加进两边共用的面板、一直亮着 ——
+## 知识之书里顶上也写「细胞图鉴」，副标题还被章标题压住（10-09 候选包截图抓到）。开哪边就由 `_show_atlas_head` 拨
+var _atlas_head: Label
+var _atlas_sub: Label
 var _page_label: Label
 var _prev: Label
 var _next: Label
@@ -137,6 +141,7 @@ func open() -> void:
 	_search.visible = true
 	_search.placeholder_text = "搜索图鉴… 回车跳到第一条"
 	_footer.text = "ESC / 右键 返回 · ←→ 翻页 · 滚轮阅读 · 细则以规则原文为准"
+	_show_atlas_head(false)
 	_resize_panel(W, H)
 	open_to(0)
 
@@ -154,6 +159,7 @@ func open_to(page: int) -> void:
 	_search.visible = true
 	_search.placeholder_text = "搜索图鉴… 回车跳到第一条"
 	_footer.text = "ESC / 右键 返回 · ←→ 翻页 · 滚轮阅读 · 细则以规则原文为准"
+	_show_atlas_head(false)
 	_resize_panel(W, H)
 	_refresh_unlocked()
 	_page = clampi(page, 0, chapters().size() - 1)
@@ -174,7 +180,13 @@ func _open_atlas() -> void:
 	_search.visible = false
 	_search.placeholder_text = "搜索细胞 / 技能…"
 	_footer.text = "ESC / 右键 返回 · 选择一个图鉴继续"
+	_show_atlas_head(true)
 	_rebuild_atlas()
+
+
+func _show_atlas_head(on: bool) -> void:
+	_atlas_head.visible = on
+	_atlas_sub.visible = on
 
 static func atlas_cells(faction: int) -> Array:
 	if faction == 2:
@@ -1277,12 +1289,12 @@ func _build() -> void:
 	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	panel.add_child(bg)
 
-	var head := CWStyle.label("细胞图鉴", CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
-	head.position = Vector2(PAD, PAD - 4)
-	panel.add_child(head)
-	var subtitle := CWStyle.label("查看细胞身份、技能动画、效果描述与关联卡牌。", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
-	subtitle.position = Vector2(PAD, PAD + 36)
-	panel.add_child(subtitle)
+	_atlas_head = CWStyle.label("细胞图鉴", CWStyle.SIZE_BIG, CWStyle.TEXT_HI)
+	_atlas_head.position = Vector2(PAD, PAD - 4)
+	panel.add_child(_atlas_head)
+	_atlas_sub = CWStyle.label("查看细胞身份、技能动画、效果描述与关联卡牌。", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
+	_atlas_sub.position = Vector2(PAD, PAD + 36)
+	panel.add_child(_atlas_sub)
 
 	## 搜索框（Kevin 2026-09-06）占了原来副标题的位置；副标题那句挪进页脚
 	_search = LineEdit.new()
