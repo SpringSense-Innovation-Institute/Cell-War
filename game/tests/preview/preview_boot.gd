@@ -45,7 +45,7 @@ func _process(_d: float) -> bool:
 			img.save_png(_out + "_skip.png")
 			print("已保存 ", _out, "_skip.png（等到 %.0f 秒：露出跳过）"
 				% _boot.SKIP_AFTER)
-			_boot._note.text = "有新版本需要完整更新，请到 GitHub Releases 下载新客户端"
+			_boot._note.text = "有新版本需要完整更新，请到 cellwar.jiling.chat 下载新客户端"
 			_boot._skip.visible = false
 		2:
 			img.save_png(_out + "_toold.png")

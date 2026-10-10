@@ -210,7 +210,7 @@ func _fetch_update() -> String:
 	var plan := decide(await _get_manifest(), PatchState.installed_build(),
 		PatchState.blocked_build(), PatchState.base_build())
 	if plan["act"] == "too_old":
-		return "有新版本需要完整更新，请到 GitHub Releases 下载新客户端"
+		return "有新版本需要完整更新，请到 cellwar.jiling.chat 下载新客户端"   ## 2026-10-10：代码仓库改私有，GitHub Releases 外人进不去，改指官网
 	if plan["act"] != "install":
 		return ""
 	var url: String = plan["url"]

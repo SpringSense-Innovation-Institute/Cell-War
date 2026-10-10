@@ -299,7 +299,7 @@ const UPD_NOTES := {
 	"latest": "已经是最新版本",
 	## 被拉黑的那一版：说「已经是最新」是骗人的 —— 不是没有新的，是它装崩过被拉黑了（Kevin 2026-09-11）
 	"blocked": "补丁装崩 %d 次已拉黑，等下一版",
-	"too_old": "基线太老，去 Releases 下新客户端",
+	"too_old": "基线太老，去官网下新客户端",   ## 10-10 仓库改私有，GitHub Releases 外人进不去
 	"downloading": "正在下载更新…",
 	"incomplete": "更新没下完，稍后再试",
 	"bad_sha": "更新文件校验失败，本次跳过",

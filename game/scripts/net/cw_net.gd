@@ -230,7 +230,7 @@ const HIDDEN_CARD := "？"             ## 别人手牌的占位
 ## 错误码 → 给玩家看的话
 const ERRORS := {
 	## 硬不变量④：拒绝老客户端时必须说清楚去哪儿拿新的（照 boot.gd:176 的 too_old 那句）
-	"version": "客户端版本与服务器不符，请到 GitHub Releases 下载新客户端",
+	"version": "客户端版本与服务器不符，请到 cellwar.jiling.chat 下载新客户端",   ## 10-10 仓库改私有后改指官网（同 boot.gd 那句）
 	"bad_message": "报文格式错误",
 	"maintenance": "服务器维护中，暂不能开新局",
 	"no_room": "没有这个房间",
