@@ -85,11 +85,37 @@ public class UltimatePolicyTests
     }
 
     [Fact]
-    public void Excalibur_30分_第12第13回合不放_第14回合减半就放()
+    public void Excalibur_30分_第12第13回合不放_第14第15回合减半就放()
     {
         AssertNoTierCasts(Board("excalibur_short"), "excalibur_short 第 12 回合");
         AssertNoTierCasts(Board("excalibur_short", AtRound(13)), "excalibur_short 第 13 回合");
         AssertAllTiers(Board("excalibur_short", AtRound(14)), "k=action+effector_target|act=effector|to=1,1|dir=0", "excalibur_short 第 14 回合");
+        AssertAllTiers(Board("excalibur_short", AtRound(15)), "k=action+effector_target|act=effector|to=1,1|dir=0", "excalibur_short 第 15 回合");
+    }
+
+    /// <summary>东西两条各 4 格癌组织、都是 40 分：同分取规范序第一个子项 —— 西边（to=-1,1 排在 to=1,1 前面）。</summary>
+    [Fact]
+    public void Excalibur_两个方向同分_朝规范序第一个方向放()
+    {
+        var s = Board("excalibur_tie");
+        var t = WorldLoader.CellOfSeat(s, 0);
+        Assert.Equal(40, UltimatePolicy.ExcaliburScore(s, t.Position, WorldLoader.Pos("-1,1")));
+        Assert.Equal(40, UltimatePolicy.ExcaliburScore(s, t.Position, WorldLoader.Pos("1,1")));
+        AssertAllTiers(s, "k=action+effector_target|act=effector|to=-1,1|dir=3", "excalibur_tie");
+    }
+
+    /// <summary>
+    /// 东边射线 3 格癌组织 + 旁边一格 (1,2)，它同时挨着射线上的 (1,1) 和 (2,1)：只算一次 ⇒ 30 + 6 = 36，差 4 分不到 40 ——
+    /// 第 12 回合不放，第 14 回合放（算两次就是 42，第 12 回合就放了）。
+    /// </summary>
+    [Fact]
+    public void Excalibur_侧向一格挨着两格射线_只算一次()
+    {
+        var s = Board("excalibur_splash");
+        var t = WorldLoader.CellOfSeat(s, 0);
+        Assert.Equal(36, UltimatePolicy.ExcaliburScore(s, t.Position, WorldLoader.Pos("1,1")));
+        AssertNoTierCasts(s, "excalibur_splash 第 12 回合");
+        AssertAllTiers(Board("excalibur_splash", AtRound(14)), "k=action+effector_target|act=effector|to=1,1|dir=0", "excalibur_splash 第 14 回合");
     }
 
     [Fact]
@@ -99,12 +125,13 @@ public class UltimatePolicyTests
     /// <summary>
     /// 漂移护栏：AI 自己走的射线 / 波及候选（<see cref="UltimatePolicy.ExcaliburArea"/>）与真引擎执行的结果对得上 ——
     /// 射线上被翻的格逐格相等（= 射线上的普通癌组织），射线外被翻的格都在候选里，40 个种子下来候选格个个都被掷中过（60% 一发，漏掉的概率 0.4^40）。
-    /// 射线上站着的癌细胞都挨了打；战果分 = 10 × 射线癌组织 + 6 × 候选 + 20 × 射线上的癌细胞。
+    /// 射线上站着的癌细胞都挨了打；候选格各算一次（不重复）；战果分 = 10 × 射线癌组织 + 6 × 候选 + 20 × 射线上的癌细胞。
     /// </summary>
     [Theory]
     [InlineData("excalibur_field")]
     [InlineData("excalibur_line")]
     [InlineData("excalibur_edge")]
+    [InlineData("excalibur_splash")]
     public void Excalibur射线与波及预测_与引擎真执行一致(string board)
     {
         var s = Board(board);
@@ -117,7 +144,9 @@ public class UltimatePolicyTests
             var (ray, splash) = UltimatePolicy.ExcaliburArea(s, t.Position, cast.Target!.Value);
             var rayCancer = ray.Where(p => s.Board.Tissues[p].State == TissueState.Cancer).ToHashSet();
             var rayCells = ray.Select(p => s.GetCellAt(p)).OfType<Cell>().Where(c => c.IsAlive && c.Faction == Faction.Cancer).ToList();
-            Assert.Equal(10 * rayCancer.Count + 6 * splash.Count + 20 * rayCells.Count, UltimatePolicy.ExcaliburScore(s, t.Position, cast.Target!.Value));
+            var splashSet = splash.ToHashSet();
+            Assert.True(splashSet.Count == splash.Count, $"{board} 朝 {cast.Target}：侧向候选有重复的格");
+            Assert.Equal(10 * rayCancer.Count + 6 * splashSet.Count + 20 * rayCells.Count, UltimatePolicy.ExcaliburScore(s, t.Position, cast.Target!.Value));
             var splashSeen = new HashSet<HexPosition>();
             for (ulong seed = 1; seed <= 40; seed++)
             {
@@ -194,6 +223,22 @@ public class UltimatePolicyTests
         => AssertAllTiers(Board("hunt_tie"), "k=action+effector_target|act=effector|cid=3", "hunt_tie");
 
     [Fact]
+    public void 免疫猎杀_同分同能量_取规范序第一个()
+    {
+        // hunt_tie 的席位 1 也调成 10.0 能量：两个目标都是 2 分、能量一样 ⇒ 规范序第一个子项 cid=1（不是后来的 cid=3）
+        WorldSpec Even(WorldSpec w) => w with { Cells = w.Cells.Select(c => c.Seat == 1 ? c with { Energy = 100 } : c).ToList() };
+        AssertAllTiers(Board("hunt_tie", Even), "k=action+effector_target|act=effector|cid=1", "hunt_tie（两个目标同能量）");
+    }
+
+    [Fact]
+    public void 免疫猎杀_B细胞也算能出手的队友()
+    {
+        // hunt_aura 的 T 换成 B：席位 3 靠 3 格内的这只 B（1 分）+ 新标记（1 分）够到 2 分，第 12 回合就放
+        WorldSpec WithB(WorldSpec w) => w with { Cells = w.Cells.Select(c => c.Seat == 2 ? c with { Type = "BCell" } : c).ToList() };
+        AssertAllTiers(Board("hunt_aura", WithB), "k=action+effector_target|act=effector|cid=3", "hunt_aura（T 换成 B）");
+    }
+
+    [Fact]
     public void 免疫猎杀_最好只有1分_第12回合不放_第14回合放()
     {
         // 把 T 挪远：席位 3 只剩「新标记」1 分
@@ -251,15 +296,94 @@ public class UltimatePolicyTests
     public void 连续吞噬_这一步没有能净化的格_第15回合也不放()
         => AssertNoTierCasts(Board("chain_blocked"), "chain_blocked");
 
-    /// <summary>(1,1) 付得起、活得下来，但它后面那片的入口 (2,1) 回合末的压迫会把付完净化费的自己压死：不算能跳 ⇒ 0 跳，第 15 回合也不放。</summary>
+    private static Func<WorldSpec, WorldSpec> MacroEnergy(int energy)
+        => w => w with { Cells = w.Cells.Select(c => c.Seat == 0 ? c with { Energy = energy } : c).ToList() };
+
+    /// <summary>
+    /// 「付得起」与普通档步骤 7 同一把尺：账上要留得出「净化费 + 1.0」。chain_two 只差 0.5（走得进去、也活得下来）⇒ 不放；
+    /// 正好够「净化费 + 1.0」⇒ 放。
+    /// </summary>
+    [Fact]
+    public void 连续吞噬_付得起净化费但留不出1点0_不放()
+    {
+        var s0 = Board("chain_two");
+        var cost = RulePolicies.QuoteMove(s0, WorldLoader.CellOfSeat(s0, 0), WorldLoader.Pos("1,1"))!.Value;
+        AssertNoTierCasts(Board("chain_two", MacroEnergy(cost + 5)), "chain_two（只留得出 0.5）");
+        AssertAllTiers(Board("chain_two", MacroEnergy(cost + 10)), "k=action|act=effector", "chain_two（正好留得出 1.0）");
+    }
+
+    /// <summary>chain_two 的第二跳 (3,1) 站着一个癌细胞：连跳只能落在没人的格 ⇒ 只剩 1 跳，第 12 回合不放、第 14 回合放。</summary>
+    [Fact]
+    public void 连续吞噬_第二跳的格有细胞占着_不算能跳()
+    {
+        WorldSpec Blocked(WorldSpec w) => w with { Cells = w.Cells.Select(c => c.Seat == 1 ? c with { At = "3,1" } : c).ToList() };
+        AssertNoTierCasts(Board("chain_two", Blocked), "chain_two（(3,1) 有人）");
+        AssertAllTiers(Board("chain_two", w => Blocked(w) with { Round = 14 }), "k=action|act=effector", "chain_two（(3,1) 有人）第 14 回合");
+    }
+
+    /// <summary>
+    /// (1,1) 付得起、活得下来，但它后面那片的入口 (2,1) 回合末的压迫会把付完净化费的自己压死：不算能跳 ⇒ 0 跳，第 15 回合也不放。
+    /// 「压死」按**付完净化费之后**的能量算：付完正好等于 (2,1) 的压迫 ⇒ 不放；多 0.1 ⇒ 放（按付之前的能量算，前一种也会放）。
+    /// </summary>
     [Fact]
     public void 连续吞噬_能跳的格回合末都会压死自己_不算能跳_不放()
     {
         var s = Board("chain_deep");
         var macro = WorldLoader.CellOfSeat(s, 0);
-        var afterPaying = macro.Energy - RulePolicies.QuoteMove(s, macro, WorldLoader.Pos("1,1"))!.Value;
-        Assert.True(afterPaying > RulePolicies.PressureAt(s, WorldLoader.Pos("1,1")) && afterPaying <= RulePolicies.PressureAt(s, WorldLoader.Pos("2,1")));
+        var cost = RulePolicies.QuoteMove(s, macro, WorldLoader.Pos("1,1"))!.Value;
+        var afterPaying = macro.Energy - cost;
+        var p11 = RulePolicies.PressureAt(s, WorldLoader.Pos("1,1"));
+        var p21 = RulePolicies.PressureAt(s, WorldLoader.Pos("2,1"));
+        Assert.True(afterPaying > p11 && afterPaying <= p21);
         AssertNoTierCasts(s, "chain_deep");
+
+        Assert.True(p21 >= 10 && p21 > p11);   // 下面两种能量都过得了「净化费 + 1.0」与「走进 (1,1) 活得下来」，只差在 (2,1) 算不算能跳
+        AssertNoTierCasts(Board("chain_deep", MacroEnergy(cost + p21)), "chain_deep（付完正好等于 (2,1) 的压迫）");
+        AssertAllTiers(Board("chain_deep", MacroEnergy(cost + p21 + 1)), "k=action|act=effector", "chain_deep（付完比 (2,1) 的压迫多 0.1）");
+    }
+
+    /// <summary>
+    /// 骨肉瘤【骨样硬化】标记过的癌组织：免疫走进去只登记蹲守、不净化，连锁也就挂不上（CellRules.Arrive）。
+    /// 所以它既不能当连锁的起点，也不算能跳 —— 否则会放出一条一格都净化不了的空连锁。第 15 回合（门槛 1 跳）也不放。
+    /// </summary>
+    [Fact]
+    public void 连续吞噬_骨样硬化标记格进去不净化_不当起点也不算能跳()
+    {
+        Func<WorldSpec, WorldSpec> Ossified(string at)
+            => w => w with { Round = 15, Tiles = w.Tiles.Select(t => t.At == at ? t with { OssifyAt = 16 } : t).ToList() };
+        AssertNoTierCasts(Board("chain_two", Ossified("1,1")), "chain_two（起点 (1,1) 有骨样硬化标记）");
+        AssertNoTierCasts(Board("chain_two", Ossified("2,1")), "chain_two（第一跳 (2,1) 有骨样硬化标记）");
+        AssertAllTiers(Board("chain_two", Ossified("3,1")), "k=action|act=effector", "chain_two（只有第二跳 (3,1) 有标记，还剩 1 跳）");
+    }
+
+    /// <summary>
+    /// 「放完立刻去接连锁」只管放完之后那一问（额度还是满的 5）：连锁接过一段（还剩 2）之后，下一次净化不再抢在攻击前面 ——
+    /// 三档共用的预检（<see cref="NormalPolicy.UltimateStep"/>）不接这一问，普通档照旧打旁边的癌细胞（走进它那一格）。
+    /// 额度满 5 的同一块板三档都先去净化 (1,1)；(1,1) 有骨样硬化标记就不去（进去不净化）。
+    /// </summary>
+    [Fact]
+    public void 连续吞噬_连锁接过一段之后_下一次净化不抢在攻击前面()
+    {
+        const string attack = "k=action|act=move|to=-1,1", purge = "k=action|act=move|to=1,1";
+        var s = Board("chain_partial");
+        Assert.Equal(attack, Answer(new NormalPolicy(lifecare: true, fixedLineup: false, castsUltimates: false), s));
+        Assert.Null(UltimateStepKey(s));
+        Assert.Equal(attack, Answer(AiTier.Normal, s));
+
+        WorldSpec Fresh(WorldSpec w) => w with { Cells = w.Cells.Select(c => c.Seat == 0 ? c with { ChainLeft = CellRules.ChainPhagoMax } : c).ToList() };
+        AssertAllTiers(Board("chain_partial", Fresh), purge, "chain_partial（额度满 5）");
+
+        WorldSpec Marked(WorldSpec w) => Fresh(w) with { Tiles = w.Tiles.Select(t => t.At == "1,1" ? t with { OssifyAt = 14 } : t).ToList() };
+        var marked = Board("chain_partial", Marked);
+        Assert.Null(UltimateStepKey(marked));
+        Assert.Equal(attack, Answer(AiTier.Normal, marked));
+    }
+
+    /// <summary>三档共用的大招预检这一问的答案（null = 不放、也不接连锁）。</summary>
+    private static string? UltimateStepKey(WorldState s)
+    {
+        var (seat, options) = RolloutCursorProbe.NextAsked(s);
+        return new NormalPolicy(AiConfig.For(AiTier.Normal)).UltimateStep(new AiView(s), AskView.Build(s, seat, options))?.Key;
     }
 
     /// <summary>连锁正在跑、唯一的下一跳 (1,1) 回合末的压迫正好等于自己的能量：不跳、停下；多 0.1 能量就跳。</summary>

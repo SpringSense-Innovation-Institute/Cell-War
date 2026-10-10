@@ -19,6 +19,7 @@ namespace CellWar.Ai;
 /// · 【连续吞噬】这一步就能花钱净化一格时才看（付得起、走进去活得过回合末的压迫 —— 与普通档步骤 7 同一把尺）；
 ///   那一格所在的那片无人普通癌组织还能免费连跳几格（最多 5）≥ 2 才放。放完下一问先去净化连跳最多的那一格（<see cref="ChainStart"/>）。
 ///   回合末会被压迫压死的格不算能跳（连跳时也不跳进去，<c>PickFreeMove</c>）—— 否则会放出一条一跳都不肯跳的连锁。
+///   【骨样硬化】标记格进去不净化（只蹲守），既不当起点也不算能跳（10-09 复核补）。
 /// · 第 14、15 回合（15 回合后强制结算）四个门槛都减半。
 ///
 /// 只读世界、不掷骰：Excalibur 的射线用内核的公开纯查询现走（<see cref="ExcaliburArea"/>），不碰 SkillRules 里掷骰的那段；
@@ -171,7 +172,7 @@ internal static class UltimatePolicy
 
     /// <summary>
     /// 连锁从哪一格起：<paramref name="purges"/> 里能连跳最多的那一格（同数取癌性邻格多的 —— 普通档步骤 7 的偏好，再同取规范序第一个）。
-    /// 没有能花钱净化的格时 Index = -1、Hops = 0。
+    /// 【骨样硬化】标记格不算起点（<see cref="Ossified"/>）。没有能花钱净化的格时 Index = -1、Hops = 0。
     /// </summary>
     internal static (int Index, int Hops) ChainStart(AiView g, Cell me, IReadOnlyList<AiOption> options, IReadOnlyList<int> purges, bool lifecare)
     {
@@ -179,6 +180,7 @@ internal static class UltimatePolicy
         foreach (var i in purges)
         {
             var to = options[i].To!.Value;
+            if (Ossified(g, to)) continue;
             var hops = ChainHops(g, to, me.Energy - options[i].CostOr0, lifecare);
             var near = g.CancerousNeighbors(to);
             if (hops > best.Hops || (hops == best.Hops && near > best.Near)) best = (i, hops, near);
@@ -188,7 +190,7 @@ internal static class UltimatePolicy
 
     /// <summary>
     /// 从 <paramref name="start"/>（花钱净化的那一格）起，同一片无人普通癌组织（连跳的落点口径，CellRules.ChainTargets）还能免费连跳几格，
-    /// 最多 <see cref="CellRules.ChainPhagoMax"/>。惜命开着时，回合末的压迫会把自己（付完这一步之后的能量）压死的格不算。
+    /// 最多 <see cref="CellRules.ChainPhagoMax"/>。惜命开着时，回合末的压迫会把自己（付完这一步之后的能量）压死的格不算；【骨样硬化】标记格不算。
     /// </summary>
     internal static int ChainHops(AiView g, HexPosition start, int energyAfter, bool lifecare)
     {
@@ -199,11 +201,18 @@ internal static class UltimatePolicy
             foreach (var n in g.Neighbors(cur))
             {
                 if (seen.Count > CellRules.ChainPhagoMax) return CellRules.ChainPhagoMax;
-                if (seen.Contains(n) || g.Tile(n).State != TissueState.Cancer || g.CellsAtCount(n) > 0) continue;
+                if (seen.Contains(n) || g.Tile(n).State != TissueState.Cancer || g.CellsAtCount(n) > 0 || Ossified(g, n)) continue;
                 if (lifecare && energyAfter <= RulePolicies.PressureAt(g.S, n)) continue;
                 seen.Add(n);
                 queue.Enqueue(n);
             }
         return Math.Min(seen.Count - 1, CellRules.ChainPhagoMax);
     }
+
+    /// <summary>
+    /// 骨肉瘤【骨样硬化】标记过的格：免疫走进去只登记蹲守、不净化，连锁也挂不上（CellRules.Arrive）——
+    /// 它既当不了连锁的起点，也不算能跳（跳进去连锁就断了），不然会放出一条一格都净化不了的空连锁。
+    /// 普通档步骤 7 照旧会走进这种格（GD v11 同样），这里不动它。
+    /// </summary>
+    private static bool Ossified(AiView g, HexPosition p) => g.Tile(p).OssifyAtRound > 0;
 }
