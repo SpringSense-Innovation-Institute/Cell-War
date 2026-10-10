@@ -12,6 +12,10 @@
 # 为什么要有这个脚本：客户端包此前只躺在本机 dist/（`.gitignore` 里，不入库），
 # 谁要谁问、也说不清哪个包对应哪次提交。放进 Release 之后，包和 commit 绑死。
 #
+# 2026-10-10 起代码仓库是私有的：这里发的那份只当存档，玩家打不开。发完接着调
+# tools/mirror_release.sh，把同两个包放到公开仓库 Kevinnb66699/Cell-War-Releases 和官网 /download/
+# —— 那一步断了就单独重跑它，不用（也不能）重跑本脚本。
+#
 # 发之前拦六件事，任一不满足直接退出 —— 这几条都是真踩过的坑：
 #   ① 工作树干净        —— 否则发出去的包和仓库里的代码对不上
 #   ② HEAD == origin/main —— 发的必须是已经推上去的那一版
@@ -199,9 +203,12 @@ echo "mac        $(du -h "$MAC" | cut -f1)"
 
 if [ "$DRY" = "1" ]; then
 	echo "✔ 五项检查通过（DRY=1，没真发）"
+	DRY=1 tools/mirror_release.sh "$TAG"
 	exit 0
 fi
 command -v gh >/dev/null 2>&1 || die "没装 gh：装好并 gh auth login 之后再跑（登录那步要你自己来）"
 
 gh release create "$TAG" "$WIN" "$MAC" --title "$TAG" --notes "$NOTES"
-echo "✔ 已发布 $TAG"
+echo "✔ 已发布 $TAG（私有仓库，存档）"
+tools/mirror_release.sh "$TAG" \
+	|| die "私有仓库已发 $TAG，玩家下载那两处没发完：网络好了单独重跑 tools/mirror_release.sh $TAG"
