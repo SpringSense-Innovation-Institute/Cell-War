@@ -182,6 +182,14 @@ public class UltimatePolicyTests
         => AssertAllTiers(Board("hunt_aura"), "k=action+effector_target|act=effector|cid=3", "hunt_aura");
 
     [Fact]
+    public void 免疫猎杀_本回合已经标过的目标不加新标记分()
+    {
+        // hunt_aura 的席位 3 本回合已经得过标记：1 + 0 分，席位 1（光环里）也是 1 分 ⇒ 第 12 回合不放
+        WorldSpec Marked(WorldSpec w) => w with { Cells = w.Cells.Select(c => c.Seat == 3 ? c with { Marked = true, MarkLeft = 1, MarkRound = w.Round } : c).ToList() };
+        AssertNoTierCasts(Board("hunt_aura", Marked), "hunt_aura（席位 3 本回合已标过）");
+    }
+
+    [Fact]
     public void 免疫猎杀_同分打能量最低的()
         => AssertAllTiers(Board("hunt_tie"), "k=action+effector_target|act=effector|cid=3", "hunt_tie");
 

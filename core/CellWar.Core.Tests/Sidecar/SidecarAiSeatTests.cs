@@ -1,4 +1,6 @@
 using System.Text.Json.Nodes;
+using CellWar.Core.Tests.Ai;
+using CellWar.Core.Worlds;
 using CellWar.Sidecar;
 
 namespace CellWar.Core.Tests.Sidecar;
@@ -99,6 +101,29 @@ public class SidecarAiSeatTests
         Assert.Contains(after, e => J.Str(e["t"]) == "step_begin" && J.Int(e["seat"]) == 1);   // 读回来之后 AI 席真的出过手
         Assert.DoesNotContain(after, e => J.Str(e["t"]) == "ask" && J.Int(e["req"]!["pid"]) == 1);
         Assert.True(back.Over || J.Int(back.Envelope(-2)["state"]!["g"]!["round_no"]) > round, "读档之后对局往前走了");
+    }
+
+    /// <summary>
+    /// AI 放大招走 sidecar 的整条路（2026-10-09，NormalPolicy 头注 ③）：X 级 T 的 AI 席从检查点续跑（夹具 excalibur_line），
+    /// AI 答出 Excalibur 的组键 → 宿主照 GD 两问补一段 step_begin / step_end（同一席两个 ask 号）→ 内核执行、没被拒，东边那条癌组织翻掉。
+    /// </summary>
+    [Fact]
+    public void AI席放大招_组键经宿主补两问_内核照做()
+    {
+        var world = WorldLoader.Load(UltimatePolicyTests.Spec("excalibur_line"));
+        var checkpoint = MatchSession.Resume(world, new Xoshiro256StarStar(1)).Save().Json;
+        using var host = SessionHost.Restore(1, new JsonObject { ["checkpoint"] = checkpoint, ["observe_viewer"] = -2, ["ai"] = new JsonObject { ["0"] = "normal" } });
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        while (!host.AtHumanAsk && !host.Over && DateTime.UtcNow < deadline) Thread.Sleep(2);
+        Assert.True(host.AtHumanAsk, "T 那一回合 20 秒内没打完");   // 停在癌方（真人）那一问
+        Assert.Null(host.LastAiError);
+        var entries = host.Pull(-2, 0, int.MaxValue).Select(n => n!.AsObject()).ToArray();
+        var aiSteps = entries.Where(e => J.Str(e["t"]) == "step_begin" && J.Int(e["seat"]) == 0).Select(e => J.Int(e["ask_id"])).ToList();
+        Assert.True(aiSteps.Count >= 2 && aiSteps.Distinct().Count() == aiSteps.Count, $"AI 席的 step_begin：{string.Join(",", aiSteps)}");
+        var dumped = WorldJson.Parse(host.DumpWorld().ToJsonString());
+        Assert.True(dumped.Cells.Single(c => c.Seat == 0).EffectorUsed);
+        foreach (var at in new[] { "1,1", "2,1", "3,1", "4,1" })
+            Assert.NotEqual("cancer", dumped.Tiles.SingleOrDefault(t => t.At == at)?.State ?? "healthy");
     }
 
     [Fact]
