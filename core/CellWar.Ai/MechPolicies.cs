@@ -7,6 +7,8 @@ namespace CellWar.Ai;
 /// 只接管顶层 <c>action</c> 问答 —— 评估全部 1 / 2 步迁移候选，按阵营手拍 scorer 取最高；
 /// 最好的是「动」就走它的第一步，最好的是「不动」或别的问答，一律回落普通档（GD <c>super.ask</c>）。
 /// 试走在推演游标上跑（独立随机流从 <c>rng</c> 的状态起步），真局一行不动。
+/// 大招例外（<see cref="NormalPolicy"/> 头注 ③，GD 没有）：评估之前先问普通档的 <see cref="NormalPolicy.UltimateStep"/>，要放就直接放 ——
+/// 三档同一个判断；推演里的陪练不放大招，试走的走法与加大招之前相同。
 /// </summary>
 public sealed class IntentPolicy : IPolicy
 {
@@ -18,7 +20,8 @@ public sealed class IntentPolicy : IPolicy
     {
         this.config = config;
         normal = new NormalPolicy(config);
-        sim = new NormalPolicy(config.Lifecare, config.FixedLineup);   // GD image 的陪练：lifecare = cfg.lifecare（sim_no_lifecare 恒 false）
+        // GD image 的陪练：lifecare = cfg.lifecare（sim_no_lifecare 恒 false）；推演里不放大招（NormalPolicy 头注 ③）
+        sim = new NormalPolicy(config.Lifecare, config.FixedLineup, castsUltimates: false);
     }
 
     public string Choose(WorldState state, int seat, IReadOnlyList<IDecision> options, IDeterministicRng rng,
@@ -28,6 +31,7 @@ public sealed class IntentPolicy : IPolicy
         var root = AiPolicies.RootState(rng);
         if (ask.Kind == "action")
         {
+            if (normal.UltimateStep(new AiView(state), ask) is { } ultimate) return ultimate.Key;
             var cursor = new RolloutCursor(state, root, sim) { Cancellation = cancellation };
             var fac = state.Players[seat].Faction;
             Func<MechMetrics, double> scorer = fac == Faction.Cancer ? m => MechScores.Cancer(m, config) : MechScores.Immune;
@@ -47,6 +51,9 @@ public sealed class IntentPolicy : IPolicy
 /// 计划缓存没搬：GD 的 <c>_plan</c> 在 <c>PLAN_HORIZON = 1</c> 下只存「第一手」、下一问必然作废，从不改答案（审计 10-01）。
 /// 照搬 GD 的一个缺陷：根选「不动」时按计划第一手配选项用的是 <c>_action_matches</c> —— 只比 act / to / card / cid，
 /// **不比分化种类**，所以陪练想分化成树突、真正落下的是规范序里第一个分化选项（先对拍一致，修它是另一次有意改动）。
+///
+/// 大招例外（<see cref="NormalPolicy"/> 头注 ③，GD 没有）：开搜之前先问普通档的 <see cref="NormalPolicy.UltimateStep"/>，要放就直接放、不搜，
+/// 不占预算、结果确定。陪练（推演里替所有席位作答的那一份）不放大招 —— 搜索不在「放 / 不放」之间权衡，用时与加大招之前相同。
 /// </summary>
 public sealed class SearchPolicy : IPolicy
 {
@@ -58,7 +65,7 @@ public sealed class SearchPolicy : IPolicy
     {
         this.config = config;
         normal = new NormalPolicy(config);
-        sim = new NormalPolicy(config.Lifecare, config.FixedLineup);
+        sim = new NormalPolicy(config.Lifecare, config.FixedLineup, castsUltimates: false);   // 推演里不放大招（NormalPolicy 头注 ③）
     }
 
     /// <summary>上一问评了几个根、是不是被预算截断（性能测量与日志用）。</summary>
@@ -71,6 +78,11 @@ public sealed class SearchPolicy : IPolicy
         var root = AiPolicies.RootState(rng);
         var view = new AiView(state);
         if (ask.Kind != "action") return normal.Final(view, ask, root).Key;
+        if (normal.UltimateStep(view, ask) is { } ultimate)
+        {
+            LastStats = (0, false);
+            return ultimate.Key;
+        }
 
         // 预算：墙钟到了就不再开新的根（已评完的根里取最好的）；取消令牌打断正在评的那个根。
         // 截断点随机器快慢而变 —— 只在产品路径上给预算，对拍时 BudgetMs = 0、令牌不取消

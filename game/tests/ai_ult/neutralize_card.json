@@ -1,0 +1,13 @@
+{
+  "round": 12,
+  "seat": 0,
+  "players": [
+    {"seat": 0, "faction": "immune", "level": "X", "memory": 20},
+    {"seat": 1, "faction": "cancer", "cancer_type": "Melanoma"}
+  ],
+  "tiles": [],
+  "cells": [
+    {"seat": 0, "type": "BCell", "at": "0,0", "differentiated": true},
+    {"seat": 1, "type": "Melanoma", "at": "3,2", "equipped": ["GLUT1高表达"], "equip_seq": {"GLUT1高表达": 1}, "play_n": 1}
+  ]
+}

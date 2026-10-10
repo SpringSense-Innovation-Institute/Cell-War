@@ -1,0 +1,17 @@
+{
+  "round": 12,
+  "seat": 0,
+  "players": [
+    {"seat": 0, "faction": "immune", "level": "X", "memory": 20},
+    {"seat": 1, "faction": "cancer", "cancer_type": "Melanoma"},
+    {"seat": 2, "faction": "immune", "level": "X", "memory": 20},
+    {"seat": 3, "faction": "cancer", "cancer_type": "SignetRing"}
+  ],
+  "tiles": [],
+  "cells": [
+    {"seat": 0, "type": "Dendritic", "at": "0,0", "differentiated": true},
+    {"seat": 1, "type": "Melanoma", "at": "1,1", "energy": 100},
+    {"seat": 2, "type": "TCell", "at": "-1,3", "differentiated": true},
+    {"seat": 3, "type": "SignetRing", "at": "-4,3"}
+  ]
+}

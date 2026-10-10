@@ -1,0 +1,40 @@
+{
+  "round": 12,
+  "seat": 0,
+  "players": [
+    {"seat": 0, "faction": "immune", "level": "X", "memory": 20},
+    {"seat": 1, "faction": "cancer", "cancer_type": "Melanoma"},
+    {"seat": 2, "faction": "immune", "level": "X", "memory": 20},
+    {"seat": 3, "faction": "cancer", "cancer_type": "Osteosarcoma"}
+  ],
+  "tiles": [
+    {"at": "1,0", "state": "cancer"},
+    {"at": "2,0", "state": "cancer"},
+    {"at": "4,0", "state": "cancer"},
+    {"at": "1,-1", "state": "cancer"},
+    {"at": "2,-1", "state": "cancer"},
+    {"at": "0,-1", "state": "cancer"},
+    {"at": "-1,0", "state": "cancer"},
+    {"at": "-2,0", "state": "cancer"},
+    {"at": "-1,1", "state": "cancer"},
+    {"at": "0,1", "state": "cancer"},
+    {"at": "0,2", "state": "cancer"},
+    {"at": "1,1", "state": "cancer"},
+    {"at": "2,-2", "state": "cancer"},
+    {"at": "-2,1", "state": "cancer"},
+    {"at": "-3,1", "state": "cancer"},
+    {"at": "-1,-1", "state": "cancer"},
+    {"at": "-4,0", "state": "cancer"},
+    {"at": "5,-1", "state": "cancer"},
+    {"at": "3,-1", "state": "cancer"},
+    {"at": "0,3", "state": "solid", "solid": 30},
+    {"at": "-2,-1", "state": "solid", "solid": 30},
+    {"at": "3,0", "state": "solid", "solid": 30}
+  ],
+  "cells": [
+    {"seat": 0, "type": "TCell", "at": "0,0", "differentiated": true},
+    {"seat": 1, "type": "Melanoma", "at": "2,0"},
+    {"seat": 2, "type": "BCell", "at": "-3,5", "differentiated": true},
+    {"seat": 3, "type": "Osteosarcoma", "at": "0,3"}
+  ]
+}

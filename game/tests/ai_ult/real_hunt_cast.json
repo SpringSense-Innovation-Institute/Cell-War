@@ -1,0 +1,45 @@
+{
+  "round": 14,
+  "seat": 2,
+  "players": [
+    {"seat": 0, "faction": "immune", "level": "X", "memory": 45},
+    {"seat": 1, "faction": "cancer", "cancer_type": "SmallCellLung"},
+    {"seat": 2, "faction": "immune", "level": "X", "memory": 45},
+    {"seat": 3, "faction": "cancer", "cancer_type": "Osteosarcoma"},
+    {"seat": 4, "faction": "immune", "level": "X", "memory": 45},
+    {"seat": 5, "faction": "cancer", "cancer_type": "SignetRing"}
+  ],
+  "tiles": [
+    {"at": "-3,-3", "necrosis": 2},
+    {"at": "-3,-2", "necrosis": 2},
+    {"at": "-3,-1", "necrosis": 2},
+    {"at": "-3,3", "store": 10},
+    {"at": "-3,4", "state": "cancer", "newborn": true},
+    {"at": "-3,6", "cards": 1, "prod": 2},
+    {"at": "-2,-3", "necrosis": 2},
+    {"at": "-2,-2", "necrosis": 2},
+    {"at": "-2,-1", "necrosis": 2},
+    {"at": "-2,4", "state": "cancer", "newborn": true},
+    {"at": "-1,-4", "necrosis": 2},
+    {"at": "-1,-3", "necrosis": 2},
+    {"at": "-1,-2", "necrosis": 2},
+    {"at": "-1,1", "state": "cancer", "newborn": true},
+    {"at": "-1,2", "state": "cancer", "newborn": true},
+    {"at": "-1,3", "state": "cancer", "newborn": true},
+    {"at": "0,-4", "necrosis": 2},
+    {"at": "0,-3", "store": 20},
+    {"at": "0,3", "cards": 1, "prod": 2},
+    {"at": "3,-3", "cards": 1},
+    {"at": "3,0", "store": 10},
+    {"at": "6,-3", "prod": 1}
+  ],
+  "cells": [
+    {"seat": 0, "type": "Macrophage", "at": "2,4", "energy": 77, "effector_used": true, "equipped": ["代谢适应", "LFA-1黏附", "效应记忆形成", "组织浸润", "细胞因子网络", "组织巡航"], "mods": [{"name": "细胞因子网络·待发", "uses": 1, "until": "round", "seq": 15}], "play_n": 15, "equip_seq": {"LFA-1黏附": 4, "代谢适应": 1, "效应记忆形成": 5, "组织巡航": 13, "组织浸润": 8, "细胞因子网络": 9}, "fx_turn": {"LFA-1黏附": 1, "组织巡航": 1}, "fx_round": ["效应记忆形成"], "differentiated": true, "draws_used": 3, "attacks_used": 3, "revives": 1},
+    {"seat": 1, "type": "SmallCellLung", "at": "-2,4", "energy": 5, "marked": true, "mark_left": 1, "mark_round": 13, "hand": ["肿瘤增援", "癌症转移", "克隆增殖", "乳酸酸化", "肿瘤细胞募集"], "equipped": ["癌症干性", "GLUT1高表达", "RAS持续激活"], "mods": [{"name": "DNA损伤修复", "uses": 1, "until": "", "seq": 9}, {"name": "PD-L1表达", "uses": 1, "until": "", "seq": 10}], "play_n": 10, "equip_seq": {"GLUT1高表达": 2, "RAS持续激活": 3, "癌症干性": 1}, "fx_turn": {"RAS持续激活": 4}, "mutate_used": true, "jump_used": 1},
+    {"seat": 2, "type": "Dendritic", "at": "-1,-2", "energy": 71, "equipped": ["模式识别增强", "免疫突触成熟", "免疫记忆库", "吞噬体成熟", "细胞因子网络", "抗原呈递强化"], "play_n": 8, "equip_seq": {"免疫突触成熟": 4, "免疫记忆库": 5, "吞噬体成熟": 6, "抗原呈递强化": 8, "模式识别增强": 1, "细胞因子网络": 7}, "differentiated": true, "chemo_cd": 1, "revives": 1},
+    {"seat": 3, "type": "Osteosarcoma", "at": "-2,-3", "energy": 0, "alive": false, "marked": false, "mark_left": 0, "mark_round": 14, "hand": ["肿瘤增援", "克隆增殖", "PD-L1表达", "DNA损伤修复"], "equipped": ["GLUT1高表达", "RAS持续激活", "癌症干性"], "play_n": 9, "equip_seq": {"GLUT1高表达": 2, "RAS持续激活": 3, "癌症干性": 5}, "fx_turn": {"RAS持续激活": 3}},
+    {"seat": 4, "type": "BCell", "at": "3,2", "energy": 91, "hand": ["缺氧适应", "补体级联"], "equipped": ["代谢适应", "细胞因子网络", "组织浸润", "耗竭抵抗", "抗体亲和力成熟"], "play_n": 8, "equip_seq": {"代谢适应": 1, "抗体亲和力成熟": 8, "组织浸润": 4, "细胞因子网络": 3, "耗竭抵抗": 7}, "differentiated": true, "draws_used": 3, "revives": 1},
+    {"seat": 5, "type": "SignetRing", "at": "-3,-2", "energy": 0, "alive": false, "marked": true, "mark_left": 1, "mark_round": 14, "hand": ["克隆增殖"], "armor_used": true}
+  ],
+  "effector_round": 13
+}

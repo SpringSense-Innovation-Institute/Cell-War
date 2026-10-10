@@ -1,0 +1,17 @@
+{
+  "round": 15,
+  "seat": 0,
+  "players": [
+    {"seat": 0, "faction": "immune", "level": "X", "memory": 20},
+    {"seat": 1, "faction": "cancer", "cancer_type": "Melanoma"}
+  ],
+  "tiles": [
+    {"at": "2,1", "state": "cancer"},
+    {"at": "3,1", "state": "cancer"},
+    {"at": "4,1", "state": "cancer"}
+  ],
+  "cells": [
+    {"seat": 0, "type": "Macrophage", "at": "0,1", "differentiated": true},
+    {"seat": 1, "type": "Melanoma", "at": "-4,-1"}
+  ]
+}

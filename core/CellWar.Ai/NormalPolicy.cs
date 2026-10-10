@@ -7,11 +7,16 @@ namespace CellWar.Ai;
 ///
 /// 规矩：**只搬策略，不搬规则**。GD 里策略直接读 <c>game.world.pressure_at</c> / <c>game.actions.antibody_damage</c> 这类
 /// 引擎查询的地方，这里一律转调 C# 内核的同名纯查询（<see cref="RulePolicies"/>），一条算式都不抄。
-/// 阈值与权重逐字照抄（十分能量：20 = 2.0）—— 改任何一个数，对拍测试（AgreementTests）必须红。
+/// 从 GD 搬来的阈值与权重逐字照抄（十分能量：20 = 2.0）—— 改其中任何一个数，对拍测试（AgreementTests）必须红。
+/// 第 ③ 条的大招门槛不在此列：它们是 C# 独有的，对拍语料走不到（见 ③）。
 ///
-/// 与 GD 线上版的两处有意差异（对拍模式下 GD 参照同样这么做，见 agree_rng.gd）：
+/// 与 GD 线上版的三处有意差异（①② 在对拍模式下 GD 参照同样这么做，见 agree_rng.gd）：
 /// ① 选项按**规范序**看（<see cref="AskView"/>）：「并列取第一个」取的是键最小的那条，不再随引擎枚举序漂；
-/// ② 分化种类的并列决胜用 <see cref="SplitMix64Rng.TieIndex"/>（GD 线上是 <c>hash([rng.state, pid])</c>）。
+/// ② 分化种类的并列决胜用 <see cref="SplitMix64Rng.TieIndex"/>（GD 线上是 <c>hash([rng.state, pid])</c>）；
+/// ③ **免疫等级 X 的大招会放**（Kevin 2026-10-09 拍板，放法在 <see cref="UltimatePolicy"/>）—— GD v11 一个都不放。
+///   只在效应应答真的给出来、【连续吞噬】刚放还没接上、或连锁那一跳时才走到；对拍语料一问都到不了 X 级，
+///   所以这一支由 game/tests/ai_ult/ 的夹具钉（UltimatePolicyTests），**不能拿 GD 当老师重录**（GD 不放）。
+///   意图 / 搜索档推演里的陪练 <c>castsUltimates = false</c>，永远不放。
 ///
 /// GD 里三个分支是死代码，没搬：<c>attack_target</c> / <c>differentiate</c> 两种问答引擎从不发、<c>confirm</c>（remutate / lyse_purge）已随规则删除。
 /// </summary>
@@ -19,13 +24,20 @@ public sealed class NormalPolicy : IPolicy
 {
     private readonly bool lifecare;
     private readonly bool fixedLineup;
+    /// <summary>
+    /// 放不放大招（头注 ③）。真作答的那一份 true；意图 / 搜索档推演里的陪练 false：推演只用来比较走法，
+    /// 两个 scorer 又都把记忆算正分（MechScores），陪练每放一次叶值就掉一截，搜索会躲开能放大招的局面。
+    /// 关掉之后推演里谁都不放，推演的走法与加大招之前相同，搜索档的用时也不变。
+    /// </summary>
+    private readonly bool castsUltimates;
 
-    public NormalPolicy(AiConfig config) : this(config.Lifecare, config.FixedLineup) { }
+    public NormalPolicy(AiConfig config) : this(config.Lifecare, config.FixedLineup, castsUltimates: true) { }
 
-    internal NormalPolicy(bool lifecare, bool fixedLineup)
+    internal NormalPolicy(bool lifecare, bool fixedLineup, bool castsUltimates)
     {
         this.lifecare = lifecare;
         this.fixedLineup = fixedLineup;
+        this.castsUltimates = castsUltimates;
     }
 
     public string Choose(WorldState state, int seat, IReadOnlyList<IDecision> options, IDeterministicRng rng,
@@ -51,7 +63,7 @@ public sealed class NormalPolicy : IPolicy
             "setup_place" => SetupPlace(g, ask.Seat, o),
             "action" => g.FactionOf(ask.Seat) == Faction.Immune ? ImmuneAction(g, ask.Seat, o, tieState) : CancerAction(g, ask.Seat, o),
             "revive" => PickRevive(g, o),
-            "free_move" => PickFreeMove(g, ask.Seat, o),
+            "free_move" => PickFreeMove(g, ask.Seat, o, avoidLethal: lifecare && ask.Tag == "连续吞噬"),
             "pick_cell" => PickStormCenter(g, ask.Tag ?? "", o),
             "pick_tile" => PickTileTake(g, o),
             "pick" => ask.Tag switch
@@ -65,9 +77,27 @@ public sealed class NormalPolicy : IPolicy
         return o[Math.Clamp(i, 0, o.Count - 1)];
     }
 
-    /// <summary>组选项的第二问（GD 在结算里追问）：趋化源选落点走 <c>_pick_chemo_spot</c>；效应应答选目标 GD 没写分支，<c>return 0</c>。</summary>
-    internal AiOption ResolveGroup(AiView g, AiOption group)
-        => group.Act == "chemo" ? group.Children[PickChemoSpot(g, group.Children)] : group.Children[0];
+    /// <summary>组选项的第二问（GD 在结算里追问）：趋化源选落点走 <c>_pick_chemo_spot</c>；效应应答选方向 / 目标走 <see cref="UltimatePolicy.PickTarget"/>
+    /// （头注 ③；GD 没写这一支，<c>return 0</c>）。</summary>
+    internal AiOption ResolveGroup(AiView g, AiOption group) => group.Act switch
+    {
+        "chemo" => group.Children[PickChemoSpot(g, group.Children)],
+        "effector" => UltimatePolicy.PickTarget(g, group),
+        _ => group.Children[0],
+    };
+
+    /// <summary>
+    /// 意图 / 搜索档在自己的搜索之前先问这一句（头注 ③）：这一问要放大招、或要接【连续吞噬】的连锁，就返回已经落到子项的那一条，否则 null。
+    /// 与普通档的步骤 1.2 是同一个函数，三档放不放、打哪里因此一样；不读随机流、不花预算。
+    /// </summary>
+    internal AiOption? UltimateStep(AiView g, AskView ask)
+    {
+        if (!castsUltimates || ask.Kind != "action" || g.FactionOf(ask.Seat) != Faction.Immune || g.CellOf(ask.Seat) is not { } me) return null;
+        var i = UltimateIndex(g, me, ask.Options);
+        if (i < 0) return null;
+        var chosen = ask.Options[i];
+        return chosen.Children.Count > 0 ? ResolveGroup(g, chosen) : chosen;
+    }
 
     // ============ 开局落子 ============
 
@@ -109,6 +139,12 @@ public sealed class NormalPolicy : IPolicy
         // 1. 分化免费，永远优先；选哪一种按种子随机（v2）
         var i = PickDifferentiationOption(seat, options, tieState);
         if (i >= 0) return i;
+        // 1.2 大招（头注 ③）：不花能量，所以分化之后立刻看
+        if (castsUltimates)
+        {
+            i = UltimateIndex(g, me, options);
+            if (i >= 0) return i;
+        }
         // 1.5 惜命（v2）：脚下这格回合末的【微环境压迫】会把自己压死 → 先挪到活得下去的格
         if (lifecare && RulePolicies.PressureAt(g.S, me.Position) >= e)
         {
@@ -160,10 +196,27 @@ public sealed class NormalPolicy : IPolicy
         return Find(options, "end");
     }
 
+    /// <summary>
+    /// 头注 ③ 这一问的答案下标，-1 = 这一问不放、也不接连锁。
+    /// (a)【连续吞噬】刚放、连锁还没接上（额度满 5）：先花钱净化能连跳最多的那一格 —— 排在打牌、攻击前面，免得能量先被花掉；
+    /// (b) 门槛开着（效应应答给出来了）且值得放。
+    /// </summary>
+    private int UltimateIndex(AiView g, Cell me, IReadOnlyList<AiOption> options)
+    {
+        if (me.ChainLeft == CellRules.ChainPhagoMax)
+        {
+            var start = UltimatePolicy.ChainStart(g, me, options, PurgeMoves(g, options, me), lifecare).Index;
+            if (start >= 0) return start;
+        }
+        if (Find(options, "effector") < 0) return -1;
+        IReadOnlyList<int> purges = me.Type == CellType.Macrophage ? PurgeMoves(g, options, me) : [];
+        return UltimatePolicy.Cast(g, me, options, purges, lifecare);
+    }
+
     /// <summary>GD <c>CWData.CHEMO_COST</c>。</summary>
     private const int ChemoCost = 30;
     /// <summary>GD <c>CWData.MARK_RANGE</c>（树突【I-标记】光环 2 格，v10）。</summary>
-    private const int MarkRange = 2;
+    internal const int MarkRange = 2;
     /// <summary>GD <c>CWData.MUCUS_RADIUS</c>。</summary>
     private const int MucusRadius = 2;
     /// <summary>GD <c>CWData.HAND_MAX</c>。</summary>
@@ -202,16 +255,31 @@ public sealed class NormalPolicy : IPolicy
         var bestScore = -1;
         for (var i = 0; i < options.Count; i++)
         {
-            var d = options[i];
-            if (d.Act != "move") continue;
-            var to = d.To!.Value;
-            if (g.Tile(to).State != TissueState.Cancer) continue;
-            if (g.AnyAt(to, Faction.Cancer)) continue;
-            if (lifecare && !SurvivesAt(g, me, to, d.CostOr0)) continue;
-            var score = g.CancerousNeighbors(to);
+            if (!IsPurgeMove(g, options[i], me)) continue;
+            var score = g.CancerousNeighbors(options[i].To!.Value);
             if (score > bestScore) { bestScore = score; best = i; }
         }
         return best;
+    }
+
+    /// <summary>这条迁移是不是一次可净化的进格（<see cref="BestPurgeMove"/> 的筛子）。</summary>
+    private bool IsPurgeMove(AiView g, AiOption d, Cell me)
+    {
+        if (d.Act != "move") return false;
+        var to = d.To!.Value;
+        if (g.Tile(to).State != TissueState.Cancer) return false;
+        if (g.AnyAt(to, Faction.Cancer)) return false;
+        return !lifecare || SurvivesAt(g, me, to, d.CostOr0);
+    }
+
+    /// <summary>这一步能花钱净化的迁移（下标，规范序）：步骤 7 的口径 —— 账上留得出「净化费 + 1.0」、再过 <see cref="IsPurgeMove"/>。头注 ③ 的【连续吞噬】用。</summary>
+    private List<int> PurgeMoves(AiView g, IReadOnlyList<AiOption> options, Cell me)
+    {
+        var list = new List<int>();
+        if (me.Energy < g.Tune.ImmuneMoveCancerous[g.ImmuneLevelGd] + 10) return list;
+        for (var i = 0; i < options.Count; i++)
+            if (IsPurgeMove(g, options[i], me)) list.Add(i);
+        return list;
     }
 
     private int BestApproach(AiView g, IReadOnlyList<AiOption> options, Cell me)
@@ -492,8 +560,11 @@ public sealed class NormalPolicy : IPolicy
         return best;
     }
 
-    /// <summary>卡牌给的「走一步 / 停」：options[0] 恒为停止（0 分），没有正收益就不白走；有癌细胞的格（动员的攻击）保守跳过。</summary>
-    private static int PickFreeMove(AiView g, int seat, IReadOnlyList<AiOption> options)
+    /// <summary>
+    /// 卡牌给的「走一步 / 停」：options[0] 恒为停止（0 分），没有正收益就不白走；有癌细胞的格（动员的攻击）保守跳过。
+    /// 【连续吞噬】的连跳也走这里（头注 ③）：<paramref name="avoidLethal"/> 时回合末会被压迫压死的格不跳、宁可停下；卡牌给的免费移动不受影响。
+    /// </summary>
+    private static int PickFreeMove(AiView g, int seat, IReadOnlyList<AiOption> options, bool avoidLethal)
     {
         var me = g.CellOf(seat)!;
         var nowD = g.DistToNearestCancerous(me.Position);
@@ -504,6 +575,7 @@ public sealed class NormalPolicy : IPolicy
             var d = options[i];
             if (d.To is not { } to) continue;
             if (g.AnyAt(to, Faction.Cancer)) continue;
+            if (avoidLethal && !SurvivesAt(g, me, to, 0)) continue;
             var t = g.Tile(to);
             var score = 0;
             if (t.State == TissueState.Cancer) score += 15;   // 净化：转地 + 记忆
