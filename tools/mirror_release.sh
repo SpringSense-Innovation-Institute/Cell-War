@@ -2,8 +2,8 @@
 # mirror_release.sh —— 把一版客户端包放到玩家下得到的两处：公开发布仓库 + 官网 /download/
 #
 # 用法（仓库根目录）：
-#   tools/mirror_release.sh client-2026-10-12     # publish_release.sh 发完私有仓库会自己调它
-#   DRY=1 tools/mirror_release.sh client-x         # 只核本机包、gh 登录与服务器写权限，不真发
+#   bash tools/mirror_release.sh client-2026-10-12     # publish_release.sh 发完私有仓库会自己调它
+#   DRY=1 bash tools/mirror_release.sh client-x         # 只核本机包、gh 登录与服务器写权限，不真发
 #
 # 为什么有这一步：2026-10-10 代码仓库改成私有，私有仓库的 Release 玩家打不开。
 # 那份照发、当存档（包和提交绑在一起）；玩家下载改走两处 ——
@@ -42,7 +42,7 @@ remote_size() {   # $1 = 下载地址 → 跟完跳转后最后一跳的 Content
 	curl -sIL --max-time 120 --retry 3 "$1" | tr -d '\r' | awk 'tolower($1)=="content-length:"{n=$2} END{print n}'
 }
 
-[ -n "$TAG" ] || die "要给 tag：tools/mirror_release.sh client-YYYY-MM-DD"
+[ -n "$TAG" ] || die "要给 tag：bash tools/mirror_release.sh client-YYYY-MM-DD"
 for f in "$WIN" "$MAC"; do
 	[ -f "$f" ] || die "找不到 $f"
 done
@@ -78,7 +78,7 @@ publish_public() {
 }
 for i in 1 2 3; do
 	publish_public && break
-	[ "$i" = 3 ] && die "公开仓库连发三次都失败：网络好了重跑 tools/mirror_release.sh $TAG"
+	[ "$i" = 3 ] && die "公开仓库连发三次都失败：网络好了重跑 bash tools/mirror_release.sh $TAG"
 	echo "⚠ 公开仓库第 $i 次没发成，10 秒后重试"; sleep 10
 done
 
@@ -86,7 +86,7 @@ done
 # 权限在服务器上 chmod：macOS 自带的 openrsync 不认 --chmod（2026-10-10 真跑时撞上）
 export COPYFILE_DISABLE=1
 rsync -t -e "ssh -o BatchMode=yes" "$WIN" "$MAC" "$SITE_HOST:$SITE_DIR/" \
-	|| die "传官网失败：重跑 tools/mirror_release.sh $TAG（公开仓库那步已传完的不会重传）"
+	|| die "传官网失败：重跑 bash tools/mirror_release.sh $TAG（公开仓库那步已传完的不会重传）"
 ON_SITE="$(ssh -o BatchMode=yes "$SITE_HOST" "cd $SITE_DIR && chmod 644 CellWar.exe CellWar.zip && sha256sum CellWar.exe CellWar.zip")"
 echo "$ON_SITE" | grep -q "^$WIN_SHA  CellWar.exe$" && echo "$ON_SITE" | grep -q "^$MAC_SHA  CellWar.zip$" \
 	|| die "官网上的包和本机 sha256 不一样：$ON_SITE"

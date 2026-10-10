@@ -203,12 +203,12 @@ echo "mac        $(du -h "$MAC" | cut -f1)"
 
 if [ "$DRY" = "1" ]; then
 	echo "✔ 五项检查通过（DRY=1，没真发）"
-	DRY=1 tools/mirror_release.sh "$TAG"
+	DRY=1 bash tools/mirror_release.sh "$TAG"
 	exit 0
 fi
 command -v gh >/dev/null 2>&1 || die "没装 gh：装好并 gh auth login 之后再跑（登录那步要你自己来）"
 
 gh release create "$TAG" "$WIN" "$MAC" --title "$TAG" --notes "$NOTES"
 echo "✔ 已发布 $TAG（私有仓库，存档）"
-tools/mirror_release.sh "$TAG" \
-	|| die "私有仓库已发 $TAG，玩家下载那两处没发完：网络好了单独重跑 tools/mirror_release.sh $TAG"
+bash tools/mirror_release.sh "$TAG" \
+	|| die "私有仓库已发 $TAG，玩家下载那两处没发完：网络好了单独重跑 bash tools/mirror_release.sh $TAG"
