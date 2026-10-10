@@ -42,6 +42,7 @@ const PROBE_NAMES: Array[String] = [
 	"move_raw_cost", "pass_through_cost", "quote_path", "const",
 	"move_legal", "anaerobic_pool", "split_share", "settle_loss",   ## §0.6.7 四条：Kevin 09-19 接受、C# 入口已开，探针面随各批定
 	"antibody_damage",   ## 批 4（E-6 规矩 1）：GD 收细胞，C# 侧新开同形的具名重载，两侧探针都只转调一句
+	"build_options",     ## 2026-10-09：选项表里某个按钮有几条（「不该出现」只有它表达得了，execute 找不到键就红）
 ]
 ## S 族分派表：25 真（批 4 把 `damage_hit` 换成真转调；它住在 CWGame 上、四个代理够不着 ⇒ rec: manual，用例手写）。
 ## 2026-09-19 issue #64：`decay` 整条删（固化计数不再递减，GD 那一步没了）。
@@ -372,6 +373,20 @@ func _probe(g: CWGame, name: String, args: Dictionary) -> Variant:
 			## `RulePolicies.AntibodyDamage(s, c)` —— 两侧探针都只转调一句，
 			## 「哪两个量喂进这条公式」的绑定留在各自的生产代码里，不搬进靶场（纪律 3）
 			return g.actions.antibody_damage(_cell(g, args))
+		"build_options":
+			## 席位的行动栏里语义键 == prefix、或以「prefix|」开头的有几条（scalar）。
+			## 配对与 `_execute` 同一套（`build_options` + `CWSemKey.key`），C# 那边 `GetAvailableDecisions` + `SemanticKey.Of`；
+			## 只数、不选、不执行 —— 「这个按钮这一刻该不该在」（【中和抗体】没目标、被中和的癌种主动技能）只能这么验
+			var bo_cell: Dictionary = _cell(g, args, "seat")
+			if bo_cell.is_empty():
+				return null   ## _cell 已经报过错了
+			var prefix := str(args.get("prefix", ""))
+			var n := 0
+			for o in g.actions.build_options(bo_cell):
+				var k := CWSemKey.key({ "kind": "action" }, o["data"])
+				if k == prefix or k.begins_with(prefix + "|"):
+					n += 1
+			return n
 		"const":
 			## 一个探针管一整张常量表（规格 §B 批 0：**不要一个常量一个探针**）。表在 _build_consts()
 			return _const_value(g, args)

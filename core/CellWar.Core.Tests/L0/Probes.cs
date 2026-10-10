@@ -20,11 +20,12 @@ namespace CellWar.Core.Tests.L0;
 /// 3. **一律不写转换层** —— 硬凑等于在靶场里再写一遍规则。
 ///
 /// 分派集合由 `game/tests/contract_ops.json` 定死（§0.6.4 第 4 条）：
-/// 表里 `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的 P 族行 ≡ <see cref="Names"/>，**17 条**。
+/// 表里 `status ∈ {OK, KNOWN_GAP, UNDEFINED}` 的 P 族行 ≡ <see cref="Names"/>，**18 条**。
 /// 其中 2 条是**空壳**（`deferred`：本批未开工，调用即抛）——
 /// 批 0 填上了 `const`（<see cref="ConstTable"/>）与 `settle_loss`，
 /// 批 1 填上了 `move_raw_cost` / `pass_through_cost` / `quote_path` / `move_legal`，
 /// 批 4 新开了 `antibody_damage`，批 2 把最后两个（`anaerobic_pool` / `split_share`）填上。
+/// 2026-10-09 新开 `build_options`（行动栏某个按钮有几条；Kevin 10-09 两处 C# 与 GD 不一致的用例要验「不该出现」）。
 ///
 /// **浮点的传输编码（R4，两侧同一套）**：<c>scalar</c> 的单位一律是**十分能量 / 千分率的整数**。
 /// 返回 <c>double</c> 的探针要在**表项里**按**千分位**冻成整数 <c>round(x * 1000)</c>
@@ -100,6 +101,18 @@ public static class Probes
         {
             var c = a.Cell(s);
             return RulePolicies.AntibodyDamage(s.Tuning, c.AntibodyThisRound, RulePolicies.HasSkill(s, c, "抗体亲和力成熟"));
+        },
+
+        // ---- 2026-10-09：行动栏里某个按钮有几条 ----
+        // 「这个按钮这一刻**不该**在」（【中和抗体】没目标、被中和的癌种主动技能，Kevin 10-09）只能这么验 ——
+        // `execute` 找不到键就当场红。配对与 Steps.Execute 同一套（GetAvailableDecisions + SemanticKey.Of），
+        // GD 侧 `l0_runner.gd:_probe` 的 `build_options` 分支是同一句话：键等于 prefix、或以「prefix|」开头的条数
+        ["build_options"] = (s, a) =>
+        {
+            var prefix = a.Str("prefix");
+            return new BasicRulesEngine().GetAvailableDecisions(s, a.Int("seat"))
+                .Select(d => SemanticKey.Of(s, d))
+                .Count(k => k == prefix || k.StartsWith(prefix + "|", StringComparison.Ordinal));
         },
     };
 

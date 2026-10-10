@@ -1,0 +1,285 @@
+[
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/effector/no_target",
+  "probe": "build_options",
+  "source": "Kevin 10-09 计划 §八 第 9 条 ①：【中和抗体】一个目标都没有时 GD 不给按钮（cw_actions.gd:58-65 `_effector_ready` → 1523-1529：`not _neutralize_targets().is_empty()`），C# 此前照样给、点了白扣 20 效应记忆。盘面：唯一的癌细胞站在 (1,-1)，脚下与六邻全是癌组织 —— 没有与健康组织相邻的癌细胞，门槛（X 级 / 已分化 / 记忆 25 ≥ 20 / 本回合没放过）全开也不给",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "X", "memory": 25 },
+    { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+   ],
+   "tiles": [
+    { "at": "1,-1", "state": "cancer" },
+    { "at": "2,-1", "state": "cancer" },
+    { "at": "2,-2", "state": "cancer" },
+    { "at": "1,-2", "state": "cancer" },
+    { "at": "0,-1", "state": "cancer" },
+    { "at": "0,0", "state": "cancer" },
+    { "at": "1,0", "state": "cancer" }
+   ],
+   "cells": [
+    { "seat": 0, "type": "BCell", "at": "-4,1", "energy": 300, "differentiated": true },
+    { "seat": 1, "type": "Osteosarcoma", "at": "1,-1", "energy": 300 }
+   ],
+   "round": 3
+  },
+  "rolls": [],
+  "args": { "seat": "0", "prefix": "k=action|act=effector" },
+  "expect": 0
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/effector/has_target",
+  "probe": "build_options",
+  "source": "同上一条，只把 (0,0) 留成健康组织：那只癌细胞与健康组织相邻 = 1 个目标（GD `_neutralize_targets` = 活着、六邻里有健康组织的癌细胞）→ 按钮给（一条，`act=effector` 不带落点）",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "X", "memory": 25 },
+    { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+   ],
+   "tiles": [
+    { "at": "1,-1", "state": "cancer" },
+    { "at": "2,-1", "state": "cancer" },
+    { "at": "2,-2", "state": "cancer" },
+    { "at": "1,-2", "state": "cancer" },
+    { "at": "0,-1", "state": "cancer" },
+    { "at": "1,0", "state": "cancer" }
+   ],
+   "cells": [
+    { "seat": 0, "type": "BCell", "at": "-4,1", "energy": 300, "differentiated": true },
+    { "seat": 1, "type": "Osteosarcoma", "at": "1,-1", "energy": 300 }
+   ],
+   "round": 3
+  },
+  "rolls": [],
+  "args": { "seat": "0", "prefix": "k=action|act=effector" },
+  "expect": 1
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/effector/target_already_neutral",
+  "probe": "build_options",
+  "source": "目标口径钉死成 GD 的：`_neutralize_targets`（cw_actions.gd:1582-1587）**不筛已经被中和的** —— 唯一贴健康组织的癌细胞本回合已被压着（neutral_until = 3），按钮照给。别顺手按「没被中和的才算」改 C#（那是 10-09 AI 放法的打分口径，不是规则）",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "X", "memory": 25 },
+    { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+   ],
+   "tiles": [
+    { "at": "1,-1", "state": "cancer" },
+    { "at": "2,-1", "state": "cancer" },
+    { "at": "2,-2", "state": "cancer" },
+    { "at": "1,-2", "state": "cancer" },
+    { "at": "0,-1", "state": "cancer" },
+    { "at": "1,0", "state": "cancer" }
+   ],
+   "cells": [
+    { "seat": 0, "type": "BCell", "at": "-4,1", "energy": 300, "differentiated": true },
+    { "seat": 1, "type": "Osteosarcoma", "at": "1,-1", "energy": 300, "neutral_until": 3 }
+   ],
+   "round": 3
+  },
+  "rolls": [],
+  "args": { "seat": "0", "prefix": "k=action|act=effector" },
+  "expect": 1
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/neutral/mucus",
+  "probe": "build_options",
+  "source": "Kevin 10-09 计划 §八 第 9 条 ②：被【中和抗体】压着的癌细胞，四个种类主动技能一个都不给（GD `_type_options` 开头 `if not game.type_ability_on(cell): return`，cw_actions.gd:471-474）。印戒能量 30.0 ≥ 2.0、本该给【黏液破裂】；neutral_until = 4、现在第 4 回合（`round <= neutral_until`，末回合仍压着）→ 0",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "I" },
+    { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" }
+   ],
+   "tiles": [{ "at": "1,-1", "state": "cancer" }],
+   "cells": [
+    { "seat": 0, "type": "ImmuneBasic", "at": "-4,1", "energy": 300 },
+    { "seat": 1, "type": "SignetRing", "at": "1,-1", "energy": 300, "neutral_until": 4 }
+   ],
+   "round": 4,
+   "seat": 1
+  },
+  "rolls": [],
+  "args": { "seat": "1", "prefix": "k=action|act=mucus" },
+  "expect": 0
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/active/mucus",
+  "probe": "build_options",
+  "source": "上一条的对照：同一盘面不写 neutral_until（没被中和）→【黏液破裂】给（一条）",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "I" },
+    { "seat": 1, "faction": "cancer", "cancer_type": "SignetRing" }
+   ],
+   "tiles": [{ "at": "1,-1", "state": "cancer" }],
+   "cells": [
+    { "seat": 0, "type": "ImmuneBasic", "at": "-4,1", "energy": 300 },
+    { "seat": 1, "type": "SignetRing", "at": "1,-1", "energy": 300 }
+   ],
+   "round": 4,
+   "seat": 1
+  },
+  "rolls": [],
+  "args": { "seat": "1", "prefix": "k=action|act=mucus" },
+  "expect": 1
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/neutral/ossify",
+  "probe": "build_options",
+  "source": "同第 9 条 ②：骨肉瘤站在没标过的普通癌组织上、付得起 2.0，本该给【骨样硬化】；被中和（neutral_until = 4、第 4 回合）→ 0",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "I" },
+    { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+   ],
+   "tiles": [{ "at": "1,-1", "state": "cancer" }],
+   "cells": [
+    { "seat": 0, "type": "ImmuneBasic", "at": "-4,1", "energy": 300 },
+    { "seat": 1, "type": "Osteosarcoma", "at": "1,-1", "energy": 300, "neutral_until": 4 }
+   ],
+   "round": 4,
+   "seat": 1
+  },
+  "rolls": [],
+  "args": { "seat": "1", "prefix": "k=action|act=ossify" },
+  "expect": 0
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/active/ossify",
+  "probe": "build_options",
+  "source": "上一条的对照：没被中和 →【骨样硬化】给（一条）",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "I" },
+    { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+   ],
+   "tiles": [{ "at": "1,-1", "state": "cancer" }],
+   "cells": [
+    { "seat": 0, "type": "ImmuneBasic", "at": "-4,1", "energy": 300 },
+    { "seat": 1, "type": "Osteosarcoma", "at": "1,-1", "energy": 300 }
+   ],
+   "round": 4,
+   "seat": 1
+  },
+  "rolls": [],
+  "args": { "seat": "1", "prefix": "k=action|act=ossify" },
+  "expect": 1
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/expired/ossify",
+  "probe": "build_options",
+  "source": "中和过期的边界：neutral_until = 4、现在第 5 回合（`round <= neutral_until` 不成立）→ 压制已解除，【骨样硬化】照给。与 neutral/ossify（第 4 回合仍压着）一起把「持续到下一回合末」两头钉住",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "I" },
+    { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" }
+   ],
+   "tiles": [{ "at": "1,-1", "state": "cancer" }],
+   "cells": [
+    { "seat": 0, "type": "ImmuneBasic", "at": "-4,1", "energy": 300 },
+    { "seat": 1, "type": "Osteosarcoma", "at": "1,-1", "energy": 300, "neutral_until": 4 }
+   ],
+   "round": 5,
+   "seat": 1
+  },
+  "rolls": [],
+  "args": { "seat": "1", "prefix": "k=action|act=ossify" },
+  "expect": 1
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/neutral/homing",
+  "probe": "build_options",
+  "source": "同第 9 条 ②：黑色素瘤站在血管 (6,0) 上、本回合没用过、付得起 1.0，本该对每个无细胞的健康组织各给一条【早期血行转移】；被中和（neutral_until = 4、第 4 回合）→ 一条都没有",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "I" },
+    { "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" }
+   ],
+   "tiles": [{ "at": "6,0", "state": "cancer" }],
+   "cells": [
+    { "seat": 0, "type": "ImmuneBasic", "at": "-4,1", "energy": 300 },
+    { "seat": 1, "type": "Melanoma", "at": "6,0", "energy": 300, "neutral_until": 4 }
+   ],
+   "round": 4,
+   "seat": 1
+  },
+  "rolls": [],
+  "args": { "seat": "1", "prefix": "k=action|act=homing" },
+  "expect": 0
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/active/homing",
+  "probe": "build_options",
+  "source": "上一条的对照：没被中和 → 127 格里去掉脚下那格癌组织、免疫站着的那格健康组织，剩 125 格各一条（GD `_homing_targets` = 全场无细胞的健康组织；C# 逐格摊开交 Validate）",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "I" },
+    { "seat": 1, "faction": "cancer", "cancer_type": "Melanoma" }
+   ],
+   "tiles": [{ "at": "6,0", "state": "cancer" }],
+   "cells": [
+    { "seat": 0, "type": "ImmuneBasic", "at": "-4,1", "energy": 300 },
+    { "seat": 1, "type": "Melanoma", "at": "6,0", "energy": 300 }
+   ],
+   "round": 4,
+   "seat": 1
+  },
+  "rolls": [],
+  "args": { "seat": "1", "prefix": "k=action|act=homing" },
+  "expect": 125
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/neutral/jump",
+  "probe": "build_options",
+  "source": "同第 9 条 ②：小细胞站在 (0,0)，六个方向各跃进 5 格都落在板内的空格上，本该给六条【转移】；被中和（neutral_until = 4、第 4 回合）→ 一条都没有",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "I" },
+    { "seat": 1, "faction": "cancer", "cancer_type": "SmallCellLung" }
+   ],
+   "tiles": [{ "at": "0,0", "state": "cancer" }],
+   "cells": [
+    { "seat": 0, "type": "ImmuneBasic", "at": "-4,1", "energy": 300 },
+    { "seat": 1, "type": "SmallCellLung", "at": "0,0", "energy": 300, "neutral_until": 4 }
+   ],
+   "round": 4,
+   "seat": 1
+  },
+  "rolls": [],
+  "args": { "seat": "1", "prefix": "k=action|act=jump" },
+  "expect": 0
+ },
+ {
+  "schema": "cwxcase/2",
+  "id": "build_options/active/jump",
+  "probe": "build_options",
+  "source": "上一条的对照：没被中和 → 六个方向各一条（GD `_jump_targets` = pos + DIRS[i] × 5，板内且无细胞）",
+  "world": {
+   "players": [
+    { "seat": 0, "faction": "immune", "level": "I" },
+    { "seat": 1, "faction": "cancer", "cancer_type": "SmallCellLung" }
+   ],
+   "tiles": [{ "at": "0,0", "state": "cancer" }],
+   "cells": [
+    { "seat": 0, "type": "ImmuneBasic", "at": "-4,1", "energy": 300 },
+    { "seat": 1, "type": "SmallCellLung", "at": "0,0", "energy": 300 }
+   ],
+   "round": 4,
+   "seat": 1
+  },
+  "rolls": [],
+  "args": { "seat": "1", "prefix": "k=action|act=jump" },
+  "expect": 6
+ }
+]

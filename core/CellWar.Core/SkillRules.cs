@@ -17,6 +17,9 @@ internal static class SkillRules
         if (d.PlayerSeat != s.Turn.ActivePlayerSeat) return new(false, "不是该玩家的回合");
         if (!s.Players.TryGetValue(d.PlayerSeat, out var player) || !player.IsAlive) return new(false, "玩家已死亡或不存在");
         if (!s.Cells.TryGetValue(d.CellId, out var cell) || !cell.IsAlive || cell.OwnerSeat != d.PlayerSeat) return new(false, "细胞不存在或不可控制");
+        // GD `_type_options`（cw_actions.gd:471-474）：被【中和抗体】压着时四个癌种主动技能**整段不出选项** —— 一道闸管全部。
+        // C# 此前没有这道闸，被中和的癌细胞照样能放（Kevin 10-09 定按 GD 修）。选项表与提交都过这里（Available 逐条 Validate、Dispatch 先 Validate）
+        if (CancerTypeSkills.Contains(d.Skill) && !TypeAbilityOn(s, cell)) return new(false, "被【中和抗体】压制：种类技能失效");
         switch (d.Skill)
         {
             case "抗体":
@@ -68,7 +71,13 @@ internal static class SkillRules
             case "连续吞噬":
                 return ValidateEffector(s, cell, CellType.Macrophage);
             case "中和抗体":
-                return ValidateEffector(s, cell, CellType.BCell);
+            {
+                var gate = ValidateEffector(s, cell, CellType.BCell);
+                if (!gate.IsValid) return gate;
+                // GD `_effector_ready("中和抗体")`（cw_actions.gd:1523-1529）：一个目标都没有就不出按钮，`_do_effector` 提交时也复验。
+                // C# 此前不查：没目标照样给、点了白扣 20 效应记忆（Kevin 10-09 定按 GD 修）
+                return NeutralizeTargets(s).Count > 0 ? new(true) : new(false, "没有与健康组织相邻的癌细胞，【中和抗体】无目标");
+            }
             case "Excalibur":
                 return ValidateEffector(s, cell, CellType.TCell);
             case "趋化源":
@@ -121,6 +130,16 @@ internal static class SkillRules
     /// <summary>GD `_toxin_targets`：脚下 + 六邻（`CWData.ring(pos, 1)`，Q↑R↑ 排序）里的**普通**癌组织。</summary>
     internal static IReadOnlyList<HexPosition> ToxinTargets(WorldState s, Cell cell)
         => Tiles(s).Where(t => t.Position.DistanceTo(cell.Position) <= 1 && t.State == TissueState.Cancer).Select(t => t.Position).ToList();
+
+    /// <summary>
+    /// GD `_neutralize_targets`（cw_actions.gd:1582-1587）：活着、六邻里有健康组织的癌细胞。**已经被中和的照样算**（GD 不筛）。
+    /// Validate（没目标不出按钮）与结算（压谁）共用这一份 —— 判与压对不上就是 10-09 那条「白扣 20 记忆」的形状。
+    /// </summary>
+    internal static IReadOnlyList<Cell> NeutralizeTargets(WorldState s)
+        => Cells(s).Where(x => x.IsAlive && x.Faction == Faction.Cancer && AdjacentHealthy(s, x.Position)).ToList();
+
+    /// <summary>四个癌种的主动技能（GD `_type_options` 那一段）：被【中和抗体】压着时一个都不给。</summary>
+    private static readonly HashSet<string> CancerTypeSkills = ["黏液破裂", "骨样硬化", "早期血行转移", "转移"];
 
     /// <summary>
     /// 【早期血行转移】的费用（GD `CWData.MELANOMA_HOMING_COST`）。
@@ -356,12 +375,10 @@ internal static class SkillRules
                 // 记「到第几回合末」而不是倒计时：存档读档、快照回滚都不会走样。
                 s = ConsumeEffector(s, cell, "中和抗体");
                 var until = s.Turn.WorldRound + 1;
-                var neutralized = RulePolicies.Cells(s)
-                    .Where(x => x.IsAlive && x.Faction == Faction.Cancer && RulePolicies.AdjacentHealthy(s, x.Position))
-                    .ToArray();
+                var neutralized = NeutralizeTargets(s);
                 foreach (var t in neutralized)
                     s = s.UpdateCell(t.Id, s.Cells[t.Id].Copy(neutralUntil: until));
-                Stage.Log(s, $"　【中和抗体】{neutralized.Length} 个与健康组织相邻的癌细胞：种类技能与永久卡本回合和下一回合失效");   // GD cw_actions.gd:1584
+                Stage.Log(s, $"　【中和抗体】{neutralized.Count} 个与健康组织相邻的癌细胞：种类技能与永久卡本回合和下一回合失效");   // GD cw_actions.gd:1584
                 Stage.Emit(new ResultAnnounced(s.Turn.WorldRound, s.Turn.Phase, "中和抗体", cell.Position, true));   // GD cw_actions.gd:1616
                 break;
             }
