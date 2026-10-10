@@ -44,7 +44,7 @@ const WEIGHTS := {
 	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
 	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0,
 	"t_tutor_sidecar_chain_c2l5": 50.0, "t_tutor_chain_c2l5": 50.0, "t_tutor_chain_c2l4_l5": 30.0, "t_tutor_sidecar_chain_c2l4_l5": 30.0, "t_tutor_sidecar_c3_drive": 24.0, "t_tutor_sidecar_c3_ui": 23.0, "t_tutor_sidecar_chain_c1c2": 19.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
-	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 5.4,
+	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_net_version_reject": 6.0, "t_tutor_c1": 5.8, "t_net_sidecar": 5.6, "t_net_drain": 5.1, "t_net_sidecar_takeover": 5.4,
 	"t_net_sidecar_ai": 11.4, "t_net_sidecar_recover": 9.0, "t_net_sidecar_recover_session": 5.0, "t_net_sidecar_recover_blame": 5.0, "t_net_sidecar_recover_round2": 5.0, "t_net_sidecar_recover_lan": 3.0, "t_net_sidecar_shards": 6.0, "t_sidecar_link_shards": 2.0, "t_sidecar_link_limits": 6.0, "t_web_solo": 6.3, "t_net_solo": 3.0,
 	"t_sidecar_save_unloadable": 8.0, "t_sidecar_crash_midgame": 5.0, "t_sidecar_unavailable_fallback": 12.0,
 	"t_sidecar_fault_before_view": 4.1, "t_sidecar_start_failure_remembered": 0.5, "t_sidecar_hang_midgame": 6.2,
@@ -180,7 +180,7 @@ func _run_all() -> void:
 		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
-		t_net_takeover, t_net_takeover_offline, t_net_resume, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
+		t_net_takeover, t_net_takeover_offline, t_net_resume, t_net_version_reject, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
 		t_semkey_single_source, t_kernel_inproc, t_kernel_sidecar, t_kernel_sidecar_ai, t_entry_smoke_sidecar, t_entry_smoke_sidecar_ai, t_sidecar_ai_pause_save, t_sidecar_locator, t_sidecar_tutor_worlds, t_reflect_kill_attack_fx, t_play_queue,
 		## 换内核观察期（2026-10-01）：新内核不能用时玩家看到什么 —— C# 存档读不回来 / 对局中途没了 / 新开局退回 GD；
 		## 同日复核补四支：开完当场就没了 / 通知页防误触 / 起不来过一次就记住 / 卡住不回
@@ -15806,6 +15806,120 @@ func t_net_resume() -> void:
 	b.dispose()
 	c.dispose()
 	srv.stop()
+
+
+## 版本不符的那句话要留得住（2026-10-10 复核查出）：服务器先发错误（「请到 cellwar.jiling.chat 下载新客户端」）、
+## 隔 500 ms 才踢，面板的断线处理原来接着就把它盖成「连接失败或已断开」；等待室 / 对局里拿着令牌的还会凭令牌无限重连。
+## 正式版换协议那天所有老客户端都撞这条 —— 那句话是他们唯一该看到的。
+## 面板挂在树上、由它自己的 _process 轮询客户端（重连就在那儿），所以这里只转服务器。
+func t_net_version_reject() -> void:
+	print("[版本不符：那句话留得住、不无限重连]")
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		return
+	var url := "ws://%s:%d" % [NET_HOST, srv.port]
+	var say := CWNet.error_text("version")
+	var p := CWOnlinePanel.new()
+	root.add_child(p)
+	await process_frame
+	var lost: Array = []
+	p.match_lost.connect(func(reason: String) -> void: lost.append(reason))
+
+	## ① 连接页：老客户端一连就被拒
+	var old := _net_client("旧", false)
+	old.hello_version = CWNet.NET_VERSION - 1
+	old.message.connect(p._on_message)
+	old.disconnected.connect(p._on_disconnected)
+	p.client = old
+	p._show_page(CWOnlinePanel.Page.CONNECT)
+	old.connect_to(url, "旧")
+	var ok := await _net_pump(srv, [],
+		func() -> bool: return old.status == "closed" and old.last_error.get("code", "") == "version")
+	await _net_pump_ms(srv, [], 300)
+	check(ok and p._status.text == say and p.page == CWOnlinePanel.Page.CONNECT,
+		"连接页被拒：状态行留着服务器那句话，没被「连接失败或已断开」盖掉（%s）" % p._status.text)
+
+	## ② 等待室里拿着令牌：服务器换了一版协议（= 正式版部署那一刻）→ 凭令牌重连时被拒
+	var a := await _version_reject_seated(srv, p, url, "甲")
+	check(a != null, "当前版本连上、建房坐下：等待室、手里有令牌")
+	if a != null:
+		## 数「连上了几次」而不是错误条数：没握手之前服务器对每一包都回一次 version（hello 之后紧跟一发 ping，一连就是两条）
+		var attempts: Array = []
+		a.connected.connect(func() -> void: attempts.append(1))
+		a.hello_version = CWNet.NET_VERSION - 1
+		srv._kick(a.client_id, "")
+		var t_a := Time.get_ticks_msec()   ## 按时间封顶：退回去的话这里每帧都在重连，等不到 closed
+		ok = await _net_pump(srv, [], func() -> bool: return (_version_rejects(a) >= 1 and a.status == "closed") or Time.get_ticks_msec() - t_a > 5000)
+		await _net_pump_ms(srv, [], CWOnlinePanel.RETRY_MS + 1000)    ## 过一个重连周期：原来这里已经又撞了好几次
+		check(ok and attempts.size() == 1 and a.status == "closed" and not p._want_reconnect,
+			"等待室里被拒：只重连了那一次，不再凭令牌无限重连（重连 %d 次）" % attempts.size())
+		check(p._status.text == say and p.page == CWOnlinePanel.Page.CONNECT,
+			"等待室里被拒：回连接页，状态行留着服务器那句话（%s）" % p._status.text)
+		p.open()      ## 退回主菜单再点「联机对战」：那间房已经没了，不能停在一间冻住的等待室
+		check(a.code == "" and a.token == "" and p.page == CWOnlinePanel.Page.CONNECT,
+			"等待室里被拒：房间码与令牌清掉，再进联机落在连接页（code=%s）" % a.code)
+
+	## ③ 对局里：收摊回主菜单、带着那句话（match_lost），不在棋盘底下无限重连
+	var b := await _version_reject_seated(srv, p, url, "乙")
+	check(b != null, "再连一个：建房坐下")
+	if b != null:
+		p.in_match = true
+		b.hello_version = CWNet.NET_VERSION - 1
+		srv._kick(b.client_id, "")
+		var t0 := Time.get_ticks_msec()    ## 按时间封顶：退回去的话这里是无限重连，别等到看门狗
+		await _net_pump(srv, [], func() -> bool: return not lost.is_empty() or Time.get_ticks_msec() - t0 > 5000)
+		ok = not lost.is_empty()
+		check(ok and str(lost[0]) == say and not p._want_reconnect,
+			"对局里被拒：match_lost 带着那句话收摊（%s）" % (str(lost[0]) if ok else "没收摊"))
+		check(b.code == "" and b.token == "", "对局里被拒：房间码与令牌清掉（收摊时 _remember_seat 不会抄一张作废的回程票）")
+		p.in_match = false
+
+	## ④ 反过来：我比服务器新（换协议那天新客户端先上、服务器排空才换）—— 别叫我去「下载新客户端」
+	var newer := _net_client("新", false)
+	newer.hello_version = CWNet.NET_VERSION + 1
+	newer.message.connect(p._on_message)
+	newer.disconnected.connect(p._on_disconnected)
+	p.client = newer
+	p._show_page(CWOnlinePanel.Page.CONNECT)
+	newer.connect_to(url, "新")
+	ok = await _net_pump(srv, [],
+		func() -> bool: return newer.status == "closed" and newer.last_error.get("code", "") == "version")
+	await _net_pump_ms(srv, [], 300)
+	check(ok and p._status.text == CWOnlinePanel.OLDER_SERVER and p.page == CWOnlinePanel.Page.CONNECT,
+		"我比服务器新：状态行说是服务器旧（%s），不说去下载新客户端" % p._status.text)
+	root.remove_child(p)
+	p.free()
+	for c: CWNetClient in [old, a, b, newer]:
+		if c != null:
+			c.dispose()
+	srv.stop()
+
+
+## 交给面板的一个当前版本客户端：连上、建一间 2 人房、坐 0 号席，等到手里有令牌；不成返回 null
+func _version_reject_seated(srv: CWNetServer, p: CWOnlinePanel, url: String, nick: String) -> CWNetClient:
+	var c := _net_client(nick, false)
+	c.message.connect(p._on_message)
+	c.disconnected.connect(p._on_disconnected)
+	p.client = c
+	c.connect_to(url, nick)
+	if not await _net_pump(srv, [], func() -> bool: return c.client_id >= 0 and p.page == CWOnlinePanel.Page.LOBBY):
+		return null
+	c.create_room(2, 0, true, 0)
+	if not await _net_pump(srv, [], func() -> bool: return c.code != "" and p.page == CWOnlinePanel.Page.ROOM):
+		return null
+	c.sit(0)
+	if not await _net_pump(srv, [], func() -> bool: return c.token != ""):
+		return null
+	return c
+
+
+func _version_rejects(c: CWNetClient) -> int:
+	var n := 0
+	for m in c.inbox:
+		if m["t"] == "error" and m.get("code", "") == "version":
+			n += 1
+	return n
 
 
 ## issue #44：移动（迁移）中被服务器代打接管 → 界面卡在选目标态

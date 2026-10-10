@@ -8,6 +8,7 @@
 ## CWNetClient 由本面板持有并每帧轮询。process_mode = ALWAYS：对局里暂停菜单会冻结整棵树，
 ## 心跳一停服务器 20 秒就判掉线。对局开始后面板隐藏但继续轮询，CWMatch 只消费 client.stream。
 ## 断线：等待室或对局中且手里有令牌 → 每 3 秒凭令牌重连，直到房间没了（match_lost）或玩家主动离开。
+## 被服务器以「版本不符」拒掉的不重连：回连接页（对局里则 match_lost），那句「去哪儿下新客户端」一直留在状态行。
 ##
 ## **局域网开服**（Kevin 2026-09-12，照 Minecraft「对局域网开放」）：连接页多一条「在本机开服」，第五页「局域网」
 ## 填端口、列出本机的局域网地址；`start_lan()` 在**本进程**里起一个 CWNetServer（和无头服务器跑的是同一份代码），
@@ -60,6 +61,7 @@ const CHAT_INPUT_H := CWChatBox.INPUT_H   ## 输入框同局内那只（Kevin 20
 const SEAT_Y0 := 214.0       ## 等待室席位第一行
 const SEAT_H := 30.0
 const RETRY_MS := 3000
+const OLDER_SERVER := "服务器的版本比你的旧，等它更新之后再连"   ## 被拒时服务器自报的版本比我小：见 _on_disconnected
 ## 大厅每隔这么久自己要一次房间表（Kevin 2026-09-13：「没有『进行中 · 可观战』这个栏目」）。
 ## 根因不是那一栏没做：大厅原来**只在进页 / 离房 / 报错时**问一次，别人开打是之后的事，
 ## 名单就一直停在「那会儿还没人在打」。报文只有几十字节，3 秒一次的代价比让人去点「刷新」小得多。
@@ -849,6 +851,26 @@ func _on_disconnected(_code: int, _reason: String) -> void:
 			_solo_fail("连不上服务器")
 		elif in_match:
 			match_lost.emit("连接已断开")
+		return
+	## 被服务器以「版本不符」拒了：服务器先把那句话（去官网下新客户端）发过来、隔 500 ms 才踢
+	## （cw_net_server.gd「让错误先送到」）。照下面走的话，手里有令牌的凭令牌无限重连，别处被「连接失败或已断开」
+	## 盖掉 —— 玩家唯一该看到的那句话只闪半秒。换协议那天所有老客户端都撞这条（2026-10-10 复核查出，09-19-4 已热更同一处）。
+	## last_error 跟着这个客户端走：玩家重新点连接会 new 一个，自然就清了。网页单机（上面 solo 那支）照旧静默退回本地
+	if client.last_error.get("code", "") == "version":
+		_want_reconnect = false
+		var say := String(client.last_error.get("msg", "version"))
+		## 服务器比我旧（它自报的 server_ver 小于我 hello 里报的）：要更新的是它不是我。换协议那天新客户端先上、
+		## 服务器排空才换，这一段让新客户端「去下载新客户端」就是骗人（会有人重下一遍再撞一遍）；局域网房主比我旧同理
+		if client.last_error.has("server_ver") and int(client.last_error["server_ver"]) < client.hello_version:
+			say = OLDER_SERVER
+		## 那间房在这台服务器上已经没了（换过一版，房间都在内存里）：清掉房间码与令牌。不清的话，退出再进联机
+		## 会停在一间冻住的等待室（open() 见 code 就进），对局里则会抄下一张作废的回程票（leave_online → _remember_seat）
+		client.leave()
+		if in_match:
+			match_lost.emit(say)
+		else:
+			_show_page(Page.CONNECT)
+			_set_status(say)
 		return
 	if client.token != "" and (page == Page.ROOM or in_match):
 		_want_reconnect = true
