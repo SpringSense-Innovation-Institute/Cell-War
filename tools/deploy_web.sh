@@ -30,7 +30,7 @@ GODOT="${GODOT:-/d/Godot/Godot_v4.5-stable_win64.exe/Godot_v4.5-stable_win64_con
 HOST="${HOST:-cellwar}"
 REMOTE="/var/www/cellwar/web"
 OUT="dist/web"
-URL="${URL:-https://cellwar.jiling.chat/}"
+URL="${URL:-https://cellwar.jiling.chat/play/}"   # 2026-10-10 起网页游戏在 /play/，根路径是官网展示页（nginx 里 /play/ alias 到 $REMOTE）
 DRY="${DRY:-0}"
 DEBUG="${DEBUG:-0}"
 
@@ -96,15 +96,15 @@ ssh -o BatchMode=yes -o ConnectTimeout=20 "$HOST" '
 	R="--resolve cellwar.jiling.chat:443:127.0.0.1 -k"
 	fail=0
 	for f in index.html index.wasm index.js index.pck; do
-		line=$(curl -s $R -o /dev/null -w "%{http_code} %{content_type}" "https://cellwar.jiling.chat/$f")
+		line=$(curl -s $R -o /dev/null -w "%{http_code} %{content_type}" "https://cellwar.jiling.chat/play/$f")
 		echo "  $line  $f"
 		case "$f:$line" in
 			index.wasm:*application/wasm*) ;;
 			index.wasm:*) echo "  ✘ wasm 的 MIME 不对（nginx 的 mime.types 缺 application/wasm）"; fail=1 ;;
 		esac
 		# 预压那一份有没有真被发出去（gzip_static 没开、或 .gz 没传上来的话这里会露馅）
-		enc=$(curl -s $R -o /dev/null -H "Accept-Encoding: gzip" -w "%{size_download}" "https://cellwar.jiling.chat/$f")
-		raw=$(curl -s $R -o /dev/null -w "%{size_download}" "https://cellwar.jiling.chat/$f")
+		enc=$(curl -s $R -o /dev/null -H "Accept-Encoding: gzip" -w "%{size_download}" "https://cellwar.jiling.chat/play/$f")
+		raw=$(curl -s $R -o /dev/null -w "%{size_download}" "https://cellwar.jiling.chat/play/$f")
 		if [ "$f" = "index.wasm" ]; then
 			if [ "$enc" -ge "$raw" ]; then
 				echo "  ✘ wasm 没走预压：压缩 $enc / 原始 $raw"; fail=1
