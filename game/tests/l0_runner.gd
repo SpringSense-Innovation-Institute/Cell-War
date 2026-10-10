@@ -33,7 +33,7 @@ const Diff := preload("res://tests/cw_case_diff.gd")
 const Gate := preload("res://tests/l0_contract_gate.gd")
 const OPS_PATH := "res://tests/contract_ops.json"
 
-## P 族分派表（§0.6.4 第 5 条）：15 真 + 2 空壳。集合 ≡ contract_ops.json 里
+## P 族分派表（§0.6.4 第 5 条；条数以下表为准，10-09 起 18 条）。集合 ≡ contract_ops.json 里
 ## `kind:"probe"` 且 status ∈ {OK, KNOWN_GAP, UNDEFINED} 的行；启动时由契约门双射校验。
 ## 空壳 = 本批未开工（NOTIMPL / OUT_OF_SCOPE 的行不进这张表）。
 const PROBE_NAMES: Array[String] = [

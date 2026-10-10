@@ -74,13 +74,51 @@ public class NeutralizeGateTests
         Assert.Equal(s.Turn.WorldRound + 1, r.NewState.Cells[cancer.Id].NeutralUntil);
     }
 
-    /// <summary>GD `_neutralize_targets` 不筛已经被中和的：唯一的目标本回合已被压着，按钮照给（别按 AI 放法的打分口径改规则）。</summary>
+    /// <summary>
+    /// GD `_neutralize_targets` 不筛已经被中和的：唯一的目标本回合已被压着，按钮照给（别按 AI 放法的打分口径改规则）；
+    /// 放下去照样给它重新盖章 —— GD `_effector_neutralize` 对每个目标都写 `neutral_until = round_no + 1`（10-09 复核补：原来只核按钮、没真放）。
+    /// </summary>
     [Fact]
-    public void 中和抗体_目标已经被中和也算目标_按钮照给()
+    public void 中和抗体_目标已经被中和也算目标_按钮照给_放了续到下一回合()
     {
         var s = EffectorWorld(healthyNeighbor: true, cancerNeutralUntil: 3);
-        Assert.True(RulePolicies.Neutralized(s, OfSeat(s, 1)));
+        var cancer = OfSeat(s, 1);
+        Assert.True(RulePolicies.Neutralized(s, cancer));
         Assert.True(Offers(s, 0, "中和抗体"));
+
+        var r = Engine.ExecuteDecision(s, new TypeSkillDecision(0, OfSeat(s, 0).Id, "中和抗体"), new Xoshiro256StarStar(1));
+        Assert.True(r.Success, r.ErrorMessage);
+        Assert.Equal(s.Turn.WorldRound + 1, r.NewState.Cells[cancer.Id].NeutralUntil);   // 3 → 4
+    }
+
+    /// <summary>
+    /// 只算**活着的**癌细胞（GD `_neutralize_targets` 遍历 `game.living_cells(CANCER)`）：唯一贴着健康组织的是一只等复活的死细胞，
+    /// 活着的那只四周全是癌组织 —— 零个目标，不给按钮（10-09 复核：删掉 `IsAlive` 原来一条测试都不红）。
+    /// </summary>
+    [Fact]
+    public void 中和抗体_贴着健康组织的只有死细胞_不算目标_不给按钮()
+    {
+        var s = WorldLoader.Load(WorldJson.Parse("""
+        {
+          "round": 3,
+          "players": [
+            { "seat": 0, "faction": "immune", "level": "X", "memory": 25 },
+            { "seat": 1, "faction": "cancer", "cancer_type": "Osteosarcoma" },
+            { "seat": 2, "faction": "cancer", "cancer_type": "SignetRing" }
+          ],
+          "tiles": [
+            { "at": "1,-1", "state": "cancer" }, { "at": "2,-1", "state": "cancer" }, { "at": "2,-2", "state": "cancer" },
+            { "at": "1,-2", "state": "cancer" }, { "at": "0,-1", "state": "cancer" }, { "at": "1,0", "state": "cancer" },
+            { "at": "0,0", "state": "cancer" }
+          ],
+          "cells": [
+            { "seat": 0, "type": "BCell", "at": "-4,1", "energy": 300, "differentiated": true },
+            { "seat": 1, "type": "Osteosarcoma", "at": "1,-1", "energy": 300 },
+            { "seat": 2, "type": "SignetRing", "at": "-2,3", "energy": 0, "alive": false }
+          ]
+        }
+        """));
+        Assert.False(Offers(s, 0, "中和抗体"));
     }
 
     // ---------- ② 被中和的癌细胞，四个种类主动技能一个都不给 ----------
