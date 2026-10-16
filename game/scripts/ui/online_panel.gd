@@ -105,6 +105,7 @@ var _roots := {}             ## Page -> 该页的根 Control
 var _status: Label
 var _title: Label
 var _sub: Label
+var _rule: ColorRect   ## 标题下那条分隔线：等待室页不画（见 _show_page）
 ## 建房页的取值与焦点（与配置面板同一套键盘模型：上下选行、左右拨值）
 ## 观众视角默认**背面**：不是保守，是「别让房主在不知情的情况下把自己的手牌公开出去」——
 ## 要露手牌得自己拨一下（Kevin 2026-09-13 定这一档可选）
@@ -912,12 +913,12 @@ func _build() -> void:
 	_sub = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	_sub.position = Vector2(SLOT_X, 200)
 	add_child(_sub)
-	var rule := ColorRect.new()
-	rule.position = Vector2(SLOT_X, 230)
-	rule.size = Vector2(288, 1)
-	rule.color = Color(CWStyle.LINE, 0.42)
-	rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	add_child(rule)
+	_rule = ColorRect.new()
+	_rule.position = Vector2(SLOT_X, 230)
+	_rule.size = Vector2(288, 1)
+	_rule.color = Color(CWStyle.LINE, 0.42)
+	_rule.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	add_child(_rule)
 	_status = CWStyle.label("", CWStyle.SIZE_LABEL, CWStyle.TEXT_DIM)
 	_status.position = Vector2(SLOT_X, STATUS_Y)
 	_status.size = Vector2(400, 16)
@@ -1207,6 +1208,10 @@ func _show_page(p: Page) -> void:
 		shown.modulate.a = 1.0
 	## 本机开着服的话，大厅 / 建房页的副标题一直写着地址 —— 房主等人的时候要念给别人听
 	_sub.text = "局域网开服中 · %s" % lan_where() if lan != null else ""
+	## 等待室的席位从 SEAT_Y0（214）排起，分隔线（230）正好横穿第一席那一行，看着像那一行被划掉了（2026-10-15
+	## 拍宣传图时发现，09 月起一直这样）。席位挪不下去：214..394 席位、398 未入座名单、438 按钮已经排满；
+	## 等待室的标题 + 副标题本身就把页头隔开了，这一页不画分隔线
+	_rule.visible = p != Page.ROOM
 	if p == Page.CONNECT:
 		_found_sel = -1
 		_start_scan()
