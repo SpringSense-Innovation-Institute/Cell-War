@@ -15517,6 +15517,13 @@ func t_online_panel() -> void:
 	p.client.my_seat = 0
 	p._show_page(CWOnlinePanel.Page.ROOM)
 	check(p._title.text == "房间 ABCDEF" and p._sub.text.contains("公开") and p._sub.text.contains("60 秒"), "等待室标题与副标题")
+	## 2026-10-15：标题下那条分隔线（y=230）落在席位行里（SEAT_Y0 起、每行 SEAT_H），等待室就不能画它
+	var rule_y: float = p._rule.position.y
+	var rule_in_seats := rule_y >= CWOnlinePanel.SEAT_Y0 and rule_y < CWOnlinePanel.SEAT_Y0 + 6 * CWOnlinePanel.SEAT_H
+	check(not (p._rule.visible and rule_in_seats), "等待室：分隔线不横穿席位行（y=%d，席位 %d 起）" % [int(rule_y), int(CWOnlinePanel.SEAT_Y0)])
+	p._show_page(CWOnlinePanel.Page.LOBBY)
+	check(p._rule.visible, "回到大厅：分隔线照常画")
+	p._show_page(CWOnlinePanel.Page.ROOM)
 	check(p._ready_text.text == "取消准备" and p._start_btn.visible and p._stand_link.visible, "已准备的房主：按钮是「取消准备」，「开局」可见")
 	check(p._status.text.contains("空席"), "有空席时状态行提示（%s）" % p._status.text)
 	check(p._members_label.text.contains("丙") and not p._members_label.text.contains("甲"), "未入座的人单列")
