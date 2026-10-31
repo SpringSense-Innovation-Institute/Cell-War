@@ -177,7 +177,7 @@ func _run_all() -> void:
 		t_card_name_fit, t_view_blend, t_attack_fx, t_crit_gold, t_issue31_fx, t_issue_fx_0919, t_cascade_purify_order, t_plan_allowance, t_announce, t_action_bar_width,
 		t_buttons_dim, t_enter_not_skipped, t_main_menu,
 		t_codex, t_quit_confirm, t_roll_hook, t_dice, t_net_protocol,
-		t_net_lobby, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
+		t_net_lobby, t_net_real_ip, t_net_watch, t_net_chat, t_chat_box, t_net_replay_download, t_net_game, t_net_reconnect, t_net_timeout,
 		t_net_surrender, t_surrender_seats, t_net_drain, t_online_panel,
 		## issue #44 / #46（2026-09-19）：代打接管当场收界面、退出房间后凭令牌回来接着打
 		t_net_takeover, t_net_takeover_offline, t_net_resume, t_net_version_reject, t_lan_host, t_lan_discovery, t_watch_entry, t_teardown_board, t_antibody_no_target_x, t_homing_stream, t_ui_sfx, t_patch_assets, t_turn_mark, t_match_online,
@@ -14879,6 +14879,48 @@ func t_net_protocol() -> void:
 	check(CWNet.logs_for(g, 1, n0)[0].contains("BCL-2抗凋亡"), "本人看到原文")
 	check(g.log_secret.size() == g.logs.size() and g.log_public.size() == g.logs.size(), "三列日志始终平行")
 	g.dispose()
+
+
+## 2026-10-31：网页版经 nginx 反代，服务器看到的对端都是 127.0.0.1，按对端数人头 ⇒ 全体网页玩家共用 MAX_PER_IP 个名额。
+## 改成本机对端时认 nginx 塞进 URL 的 ?ip=（CWNetServer.real_ip）。这里先测纯函数，再真连：同一真实 IP 仍然只给 8 个，不同真实 IP 各算各的
+func t_net_real_ip() -> void:
+	check(CWNetServer.real_ip("127.0.0.1", "ws://127.0.0.1:8611/?ip=203.0.113.5") == "203.0.113.5", "本机对端：认 nginx 带来的真实地址")
+	check(CWNetServer.real_ip("::1", "ws://[::1]:8611/?ip=2001:db8::7") == "2001:db8::7", "本机对端（IPv6）：认 IPv6 真实地址")
+	check(CWNetServer.real_ip("198.51.100.2", "ws://198.51.100.9:8611/?ip=203.0.113.5") == "198.51.100.2", "直连的对端：自己带 ?ip= 也不认")
+	check(CWNetServer.real_ip("127.0.0.1", "ws://127.0.0.1:8611/?ip=not-an-ip") == "127.0.0.1", "参数不是合法 IP：退回对端地址")
+	check(CWNetServer.real_ip("127.0.0.1", "ws://127.0.0.1:8611/") == "127.0.0.1", "没带参数（本机开服的房主自己）：就是本机")
+	var srv := _net_server()
+	check(srv != null, "联机：本机起服务器")
+	if srv == null:
+		return
+	var base := "ws://%s:%d/?ip=" % [NET_HOST, srv.port]
+	var n := CWNet.MAX_PER_IP + 1
+	## 不同真实 IP 的 n 个网页玩家：原来第 n 个会被断，现在都连得上
+	var many: Array = []
+	for i in n:
+		var c := _net_client("网%d" % i)
+		c.connect_to(base + "203.0.113.%d" % (10 + i), c.nick)
+		many.append(c)
+	var ok := await _net_pump(srv, many, func() -> bool:
+		return many.all(func(c) -> bool: return c.client_id >= 0))
+	check(ok, "%d 个不同真实 IP 的网页玩家都连得上（原来第 %d 个会被断）" % [n, n])
+	for c in many:
+		c.dispose()
+	await _net_pump_ms(srv, [], 300)
+	## 同一真实 IP：第 n 个照旧被拒
+	var same: Array = []
+	for i in n:
+		var c := _net_client("同%d" % i)
+		c.connect_to(base + "203.0.113.200", c.nick)
+		same.append(c)
+	await _net_pump(srv, same, func() -> bool:
+		return same.filter(func(c) -> bool: return c.client_id >= 0).size() >= CWNet.MAX_PER_IP \
+			and same.filter(func(c) -> bool: return c.status == "closed").size() >= 1, 900)
+	var in_n: int = same.filter(func(c) -> bool: return c.client_id >= 0).size()
+	check(in_n == CWNet.MAX_PER_IP, "同一真实 IP 只放进 %d 个（实际 %d 个）" % [CWNet.MAX_PER_IP, in_n])
+	for c in same:
+		c.dispose()
+	srv.stop()
 
 
 func t_net_lobby() -> void:

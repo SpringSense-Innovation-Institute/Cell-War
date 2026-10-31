@@ -142,11 +142,30 @@ func send(cid: int, msg: Dictionary) -> void:
 
 
 # ---- 连接 ----
+## 按哪个地址数人头（MAX_PER_IP）。网页版经 nginx 反代进来，TCP 对端一律是本机 ——
+## 原来直接按对端数，全体网页玩家加起来只有 MAX_PER_IP 个名额，第 9 个一连上就被断（2026-10-31 查出）。
+## nginx 把玩家的真实地址放进转发 URL 的 ip 参数（cellwar.conf 的 location /ws：proxy_pass …/?ip=$remote_addr），
+## **只在对端是本机时才信它**：直连服务器端口的人自己带 ?ip= 也没用。参数不是合法 IP 就当没有。
+## （nginx 也带了 X-Real-IP 头，但 Godot 的 WebSocketPeer 读不到请求头，所以走 URL）
+static func real_ip(peer_host: String, url: String) -> String:
+	if peer_host != "127.0.0.1" and peer_host != "::1":
+		return peer_host
+	var q := url.find("?")
+	if q < 0:
+		return peer_host
+	for kv in url.substr(q + 1).split("&", false):
+		if kv.begins_with("ip="):
+			var v := kv.substr(3).uri_decode()
+			if v.is_valid_ip_address():
+				return v
+	return peer_host
+
+
 func _on_connected(cid: int) -> void:
 	var ip := ""
 	var wsp := peer.get_peer(cid)
 	if wsp != null:
-		ip = wsp.get_connected_host()
+		ip = real_ip(wsp.get_connected_host(), wsp.get_requested_url())
 	var same := 0
 	for c in clients.values():
 		if ip != "" and c["ip"] == ip:
