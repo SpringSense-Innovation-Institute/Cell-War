@@ -765,6 +765,16 @@ func tile_shown(c: Vector2i) -> bool:
 	return map.has(key) and (map[key]["instance"] as Sprite2D).modulate.a > 0.001
 
 
+## 这一格身上露着的覆膜，按画的先后（坏死在下、黏液在上）；没有给空表。关间过渡抄替身用
+func films_at(c: Vector2i) -> Array:
+	var out: Array = []
+	for nodes: Dictionary in [_necro_nodes, _mucus_nodes]:
+		var s: Sprite2D = nodes.get(c)
+		if s != null and is_instance_valid(s) and s.visible:
+			out.append(s)
+	return out
+
+
 ## 某格的贴图节点（关间过渡抄它的贴图与位置画替身）；盘上没有这一格给 null
 func tile_sprite(c: Vector2i) -> Sprite2D:
 	var key := axial_to_rc(c)

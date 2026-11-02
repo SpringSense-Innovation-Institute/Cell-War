@@ -40,7 +40,7 @@ var _durations: Array = []   ## [毫秒, 测试名]
 const WEIGHTS := {
 	"t_ai_same_hash_mcts4": 78.0, "t_ai_same_hash_mc4": 66.5, "t_ai_same_hash_mc6": 58.8, "t_ai_same_hash_mcts6": 34.9,
 	"t_tutor_done_menu": 30.0, "t_tutor_c3_drive": 22.0, "t_tutor_c3_ui": 22.0, "t_ai_mc": 13.0, "t_net_game": 12.3, "t_tutor_c2": 9.3, "t_net_reconnect": 8.0,
-	"t_tutor_interlude": 7.9, "t_net_timeout": 6.4, "t_net_version_reject": 6.0, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
+	"t_tutor_interlude": 7.9, "t_tutor_morph_edges": 6.0, "t_net_timeout": 6.4, "t_net_version_reject": 6.0, "t_tutor_c1": 5.8, "t_net_drain": 5.1,
 	"t_settle_screen": 4.8, "t_tutor_hooks": 2.8, "t_tutor_view_bubble": 2.1, "t_issue_fx_0919": 1.9,
 	"t_tutor_chrome": 1.8, "t_rec_depth": 1.7, "t_observe_cadence": 1.4, "t_observe_budget": 1.3,
 	"t_kernel_inproc": 1.3, "t_crit_gold": 1.2, "t_patch_assets": 1.1, "t_replay": 1.0,
@@ -175,7 +175,7 @@ func _run_all() -> void:
 		t_obs_codec, t_obs_hard_error, t_obs_crop, t_mirror_survives_restore, t_mirror_field_table, t_kernel_observe,
 		t_observe_budget,
 		## 批 1 步 6+8（合并）：五条入口冒烟 + 三条护栏
-		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial, t_settings_button,
+		t_entry_smoke_local, t_entry_smoke_hotseat, t_entry_smoke_tutorial, t_tutor_morph_edges, t_settings_button,
 		t_entry_smoke_replay, t_entry_smoke_online,
 		t_kernel_parity, t_no_engine_in_ui, t_bridge_fx_overrides, t_kernel_attach_engine, t_mech_bridge_quiet, t_hf_reflect_kill_attack_fx, t_hf_loader_dead_shares_tile, t_hf_mech_dist_cache, t_kernel_loader_moved, t_board_active_tiles,
 		## 口径二 C-1 步 13：录制代理的四条硬闸（A-4 判据）
@@ -18085,6 +18085,97 @@ func t_entry_smoke_tutorial() -> void:
 	## `teardown()`（含 `CWTutorLayers.reset()`）—— 不等的话那一下会落在**下一个测试**的中间，
 	## 把教程 UI 层开关悄悄推回默认（09-19：t_tutor_flow 单跑绿、跟在这条后面跑红）
 	await process_frame
+
+
+## 教程关间过渡的几种边角（2026-11-01 改成连贯转场后，复核抓到的）：
+##   ① 第二关 → 第三关：过渡开演之前，导演补走 flow[0] 那一拍的镜头不许先动镜头（活跃格还是上一关的，
+##      按它取景会先补间到半路机位、开演再从那儿起 —— 一帧跳一大截），开演第一帧从旧机位起；
+##   ② 过渡中按「重置本关」：导演放手、真身放出来、替身收净（原来导演永远按着、整关卡死）；
+##   ③ 暂停：计时器随暂停停 —— 暂停期间不收替身、不放真身；解除后照常演完；
+##   ④ 返回主菜单（fade_out）：过渡就此打住、不再换活跃格，教程镜头的补间停掉（不然它每帧抢返场的镜头）。
+## 换关都从计时器回调里发起（同真通关：等结算气泡的计时器到点才换局）
+func t_tutor_morph_edges() -> void:
+	print("[教程关间过渡·边角]")
+	var main_scene: Node = load("res://scenes/Main.tscn").instantiate()
+	root.add_child(main_scene)
+	await process_frame
+	CWGuideProgress.clear()
+	var m: CWMatch = main_scene.match_node
+	m.tutorial = true
+	CWSettings.ai_delay_ms = 0
+	m.start()
+	await _tutor_pump(2)
+	await create_timer(0.05).timeout
+	m._tutor_next_level("c1_l2", false)
+	await _tutor_morph_settled(m)
+	## ---- ① 第二关 → 第三关（第三关开右栏，层表变了）----
+	var cam_before: Dictionary = m._tutor_cam.duplicate()
+	var zoom_before: float = m.camera.zoom.x
+	var old_active := str(m.board.active_tiles())
+	await create_timer(0.05).timeout
+	m._tutor_next_level("c1_l3", false)
+	var drifted := false
+	var frames := 0
+	while str(m.board.active_tiles()) == old_active and frames < 240:
+		if m._tutor_cam != cam_before:
+			drifted = true
+		await process_frame
+		frames += 1
+	check(frames < 240 and not drifted,
+		"★ ① 第二关 → 第三关：开演之前镜头的目标一直是上一关的机位（导演补走 flow[0] 那一拍的镜头不算数；等了 %d 帧）" % frames)
+	await process_frame
+	var zoom_first: float = m.camera.zoom.x
+	check(absf(zoom_first - zoom_before) / zoom_before < 0.05,
+		"★ ① 开演第一帧镜头从旧机位起，不先跳一截（倍率 %.3f → %.3f）" % [zoom_before, zoom_first])
+	await _tutor_morph_settled(m)
+	check(not m._tutor_morphing and m._tutor_morph.is_empty() and not m._director._held, "① 第三关过渡演完、导演放手")
+	## ---- ② 过渡中按「重置本关」----
+	await create_timer(0.05).timeout
+	m._tutor_next_level("c1_l2", false)
+	await create_timer(CWMatch.TUTOR_MORPH_SECS * 0.5).timeout
+	check(m._tutor_morphing and m._tutor_cells_held, "② 过渡正在演（玩家那只还在走）")
+	m._tutor_reset_pressed()
+	await create_timer(1.0).timeout
+	var me: int = m._tutor_cell_id(0)
+	check(not m._tutor_morphing and not m._tutor_cells_held and m._tutor_morph.is_empty()
+			and not m._director._held and m._tutor_fx_cid == -1 and (m._cell_nodes[me] as Sprite2D).visible,
+		"★ ② 过渡中按「重置本关」：导演放手、真身放出来、替身收净（原来导演永远按着、整关卡死）")
+	## ---- ③ 暂停 ----
+	await create_timer(0.05).timeout
+	m._tutor_next_level("c1_l3", false)
+	await create_timer(0.1).timeout
+	paused = true
+	await create_timer(CWMatch.TUTOR_MORPH_SECS + 0.5).timeout   ## 测试自己的计时器不随暂停停
+	var held_in_pause: bool = m._tutor_morphing and m._tutor_cells_held and not m._tutor_morph.is_empty()
+	paused = false
+	check(held_in_pause, "★ ③ 暂停期间过渡停着：真身还按着、替身没收（计时器随暂停停）")
+	await _tutor_morph_settled(m)
+	check(not m._tutor_morphing and m._tutor_morph.is_empty() and not m._tutor_cells_held, "③ 解除暂停后照常演完")
+	## ---- ④ 返回主菜单 ----
+	await create_timer(0.05).timeout
+	m._tutor_next_level("c1_l1", false)
+	await create_timer(0.1).timeout
+	m.fade_out(0.4)
+	var tween_alive: bool = m._tutor_cam_tween != null and m._tutor_cam_tween.is_valid()
+	check(not m._tutor_morphing and not tween_alive, "★ ④ 返回主菜单：过渡就此打住、教程镜头的补间停掉")
+	var active_fading := str(m.board.active_tiles())
+	await create_timer(1.0).timeout
+	check(str(m.board.active_tiles()) == active_fading and m._tutor_morph.is_empty(),
+		"④ 返场期间过渡不再换活跃格，替身随返场淡完收掉（剩 %d 个）" % m._tutor_morph.size())
+	m.teardown()
+	await process_frame
+	CWSettings.ai_delay_ms = 220
+	CWGuideProgress.clear()
+	main_scene.queue_free()
+	await process_frame   ## 同 t_entry_smoke_tutorial：等它真的释放，`_exit_tree` 的 teardown 别落到下一个测试中间
+
+
+## 等关间过渡演完（导演放手、替身收净）；上限 4 秒，超时由调用方的断言报出来
+func _tutor_morph_settled(m: CWMatch) -> void:
+	var waited := 0.0
+	while (m._tutor_morphing or not m._tutor_morph.is_empty()) and waited < 4.0:
+		await create_timer(0.05).timeout
+		waited += 0.05
 
 
 ## 网页版右上角「设置」按钮（Kevin 2026-09-25：手机玩家没有 Esc）：只在 web 导出里建；点一下 = Esc 开暂停菜单、

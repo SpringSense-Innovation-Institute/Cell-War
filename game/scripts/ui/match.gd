@@ -1193,17 +1193,27 @@ func _tutor_camera(secs := 0.0) -> void:
 	if want == _tutor_cam:
 		return                       ## 这一步没改镜头：别为了一个没变的机位再补间一次
 	var from := _tutor_cam if not _tutor_cam.is_empty() else want
+	## 上一段补间还没走完就被这一段接上（关间过渡被打断、两段镜头挨着）：从镜头**此刻**的取景接着走，
+	## 从上一段的终点起的话，画面会先一帧跳到那个终点再动（11-01 复核）
+	if _tutor_cam_tween != null and _tutor_cam_tween.is_valid() and not _tutor_cam_live.is_empty():
+		from = _tutor_cam_live
 	_tutor_cam = want
 	if _tutor_cam_tween != null and _tutor_cam_tween.is_valid():
 		_tutor_cam_tween.kill()
 	if secs <= 0.0:
+		_tutor_cam_live = {}
 		CWView.apply(camera, board, float(want["zoom"]), want["look_at"], want["anchor"])
 		return
+	_tutor_cam_live = from
 	_tutor_cam_tween = create_tween()
-	var step := _tutor_cam_tween.tween_method(
-		func(k: float) -> void: CWView.blend_to(camera, board, from, want, k),
-		0.0, 1.0, secs)
+	var step := _tutor_cam_tween.tween_method(_tutor_cam_step.bind(from, want), 0.0, 1.0, secs)
 	step.set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN_OUT)
+
+
+## 镜头补间的一帧：插到 k 处、记下此刻停在哪（`_tutor_cam_live`）、落到相机上
+func _tutor_cam_step(k: float, from: Dictionary, want: Dictionary) -> void:
+	_tutor_cam_live = CWView.mix(from, want, k)
+	CWView.apply(camera, board, float(_tutor_cam_live["zoom"]), _tutor_cam_live["look_at"], _tutor_cam_live["anchor"])
 
 
 ## 剧本显式写了 `ui.camera` 的那一条 `state`（导演的 `want_camera`）：按**此刻**玩家站的格重算一次机位、
@@ -1212,6 +1222,11 @@ func _tutor_camera(secs := 0.0) -> void:
 ## 把那一下点击挡掉（Kevin 2026-09-24「第二段转移按不出去」）。`_tutor_camera` 自己按 `want == _tutor_cam` 去重，
 ## 层表恰好也变了时不会补两次。**不是跟随**（Kevin 09-19「镜头只在关卡开始时调中一次」）：剧本写一条才挪一次
 func _tutor_camera_beat() -> void:
+	## 关间过渡里导演按着游标、只补走 flow[0] 那一拍：这时活跃格还是上一关的，按它取景会先补间到一个
+	## 「旧格 + 新层表」的半路机位，过渡开演再从那儿起 —— 画面一帧跳一大截（11-01 复核，第二关 → 第三关）。
+	## 过渡开演时自己会按新一关取景
+	if _tutor_morphing:
+		return
 	_tutor_camera(TUTOR_CAM_SECS)
 
 
@@ -1437,6 +1452,7 @@ func _tutor_load_world(wid: String, back_to_start := false) -> void:
 	## 已经是这一份就不重装：关首那条 `state` 每次装闸都会再发一遍，重装一次等于把关卡掀了
 	if not back_to_start and str(_stage.world_id) == wid:
 		return
+	_tutor_morph_abort()   ## 关间过渡还在演就按了「重置本关」：不收的话导演永远按着、细胞永远藏着（11-01 复核）
 	_loop_id += 1
 	var k: CWKernel = _stage.reload_world(wid)
 	if k == null:
@@ -1474,6 +1490,7 @@ func _tutor_load_world(wid: String, back_to_start := false) -> void:
 func _tutor_recenter(delta: Vector2i, radius: int) -> void:
 	if not tutorial or _stage == null or kernel == null or delta == Vector2i.ZERO:
 		return
+	_tutor_morph_abort()
 	_loop_id += 1
 	var k: CWKernel = _stage.reload_recentered(delta, radius)
 	if k == null:
@@ -1660,6 +1677,13 @@ var _tutor_layers_seen := {}
 var _tutor_morph: Array = []
 ## 新一关的细胞先别露面：旧的由替身画着，玩家那只落位后才放（Kevin 2026-09-20：主细胞先就位，别的细胞随后出来）
 var _tutor_cells_held := false
+## 正在演关间过渡（换局那一刻到导演放手）。这段时间导演补走 flow[0] 那一拍的镜头不算数（见 `_tutor_camera_beat`）
+var _tutor_morphing := false
+## 关间过渡的代际：`_tutor_morph_abort` 一加，还在 await 里的那一段醒来就退出
+##（重置本关 / 返回主菜单不一定动 `_loop_id`）
+var _tutor_morph_gen := 0
+## 教程镜头此刻真正停在的取景（补间每帧写）。下一段补间接上来时从这儿起，不从上一段的终点起
+var _tutor_cam_live := {}
 
 func _wait_result_bubbles() -> void:
 	var waited := 0.0
@@ -1688,10 +1712,11 @@ func _tutor_rematch(wid: String) -> void:
 ## ★ **换局会新建一只桥**（`_wire_bridge`），所以要把**同一个**导演重新挂上去（见 `_tutor_next_level` 的头注）
 func _tutor_reopen(wid: String, fresh_cursor: bool) -> void:
 	_loop_id += 1
+	var was_morphing := _tutor_morphing
 	_tutor_morph_abort()   ## 上一次过渡还在演就收掉（目录连点两关）
 	var morph := {}
 	if fresh_cursor:
-		morph = _tutor_morph_capture()   ## 抄在拆旧局之前：下面就要换成新一关，替身让画面先停在这一刻
+		morph = _tutor_morph_capture(was_morphing)   ## 抄在拆旧局之前：下面就要换成新一关，替身让画面先停在这一刻
 		## 盘面特效只清状态不动显隐（显隐归各层自己管，藏了没人再开）
 		for fx in _board_fx_layers():
 			if fx.has_method("clear"):
@@ -1782,33 +1807,75 @@ func _tutor_resnap() -> void:
 
 ## 换局之前把旧盘面抄成替身（下一步就要拆旧局）。替身**这一帧就挂上**，新一关画出来之前就盖住了。
 ## 返回 { tiles: {格: 替身}, cells: [替身], player: 玩家那只的替身或 null }。
+## `was_morphing` = 上一段过渡刚被这一次打断（目录连点两关）：那时真身被 `_tutor_cells_held` 藏着、
+## 画面上是替身，这里照样把活着且露着的细胞当「看得见」抄 —— 不然第二段一只细胞都没有，玩家也不走（11-01 复核）。
 ## 没棋盘 / 没相机 / 没镜像给 {}：新一关直接就位，不演
-func _tutor_morph_capture() -> Dictionary:
+func _tutor_morph_capture(was_morphing := false) -> Dictionary:
 	if board == null or camera == null or mirror == null or _cells_root == null:
 		return {}
 	var tiles := {}
 	for c: Vector2i in board.active_tiles():
 		var tile: Sprite2D = board.tile_sprite(c)
 		if tile != null and tile.modulate.a > 0.001:
-			tiles[c] = _tutor_ghost_of(tile, tile.get_parent())
+			tiles[c] = _tutor_tile_ghost(c, tile)
 	var me: int = int(human_players[0]) if not human_players.is_empty() else -1
 	var cells: Array = []
 	var player: Sprite2D = null
 	for i in mini(_cell_nodes.size(), mirror.cells.size()):
 		var node := _cell_nodes[i] as Sprite2D
-		if node == null or not node.visible or node.texture == null:
+		var c: Dictionary = mirror.cells[i]
+		if node == null or node.texture == null:
 			continue
-		var g := _tutor_ghost_of(node, _cells_root)
-		if int((mirror.cells[i] as Dictionary)["pid"]) == me:
+		if not node.visible and not (was_morphing and bool(c["alive"]) and board.is_active(c["pos"])):
+			continue
+		var g := _tutor_sprite_copy(node)
+		_cells_root.add_child(g)
+		_tutor_morph.append(g)
+		if int(c["pid"]) == me:
 			player = g
 		else:
 			cells.append(g)
 	return { "tiles": tiles, "cells": cells, "player": player }
 
 
-## 照抄一只 Sprite2D 此刻画出来的样子，挂到 `parent` 下（同一父节点、同一 z，后加的画在原件上面）。
-## 帧切法必须抄：细胞贴图是呼吸帧的雪碧图，不抄会把整条帧带铺开成一排细胞（09-20 真机截到的）
-func _tutor_ghost_of(src: Sprite2D, parent: Node) -> Sprite2D:
+## 一格的替身 = 格本身 + 它身上那几层（坏死膜、黏液膜、积累进度环），一起淡。
+## 替身比原格高一层 z（= 原格进度环那一层）、后加、画在上面：新一关的进度环与覆膜在底下照常画，被它盖住，
+## 不会先透出来（11-01 复核：第三关 → 第四关，章节提示那两秒里骨髓的环先套在旧的普通格上）。
+## 「长得一样没有」的判据记在替身的 meta 上（`_tutor_tile_look`）
+func _tutor_tile_ghost(c: Vector2i, tile: Sprite2D) -> Sprite2D:
+	var g := _tutor_sprite_copy(tile)
+	g.z_index = tile.z_index + 1
+	for film: Sprite2D in board.films_at(c):
+		var f := _tutor_sprite_copy(film)
+		f.position = film.position - tile.position
+		f.z_index = 0
+		g.add_child(f)
+	var ring := tile.get_node_or_null("StoreRing") as Sprite2D
+	if ring != null and ring.visible:
+		var r := _tutor_sprite_copy(ring)
+		r.z_index = 0
+		g.add_child(r)   ## 最后加 = 画在两层膜上面，同原格
+	g.set_meta("look", _tutor_tile_look(c, tile))
+	tile.get_parent().add_child(g)
+	_tutor_morph.append(g)
+	return g
+
+
+## 一格此刻长什么样：贴图 / 帧 + 进度环（亮不亮、哪张图、进度）+ 身上的覆膜。两次一样 = 这一格换关前后没变
+func _tutor_tile_look(c: Vector2i, tile: Sprite2D) -> Array:
+	var look: Array = [tile.texture, tile.frame]
+	var ring := tile.get_node_or_null("StoreRing") as Sprite2D
+	if ring != null and ring.visible:
+		look.append_array([ring.texture, (ring.material as ShaderMaterial).get_shader_parameter("progress")])
+	for film: Sprite2D in board.films_at(c):
+		look.append(film.texture)
+	return look
+
+
+## 照抄一只 Sprite2D 此刻画出来的样子（不挂树、不带子节点）。
+## 帧切法必须抄：细胞贴图是呼吸帧的雪碧图，不抄会把整条帧带铺开成一排细胞（09-20 真机截到的）；
+## 材质也抄：进度环的进度在着色器参数里
+func _tutor_sprite_copy(src: Sprite2D) -> Sprite2D:
 	var g := Sprite2D.new()
 	g.texture = src.texture
 	g.hframes = src.hframes
@@ -1822,21 +1889,26 @@ func _tutor_ghost_of(src: Sprite2D, parent: Node) -> Sprite2D:
 	g.modulate = src.modulate
 	g.z_index = src.z_index
 	g.z_as_relative = src.z_as_relative
-	parent.add_child(g)
-	_tutor_morph.append(g)
+	g.texture_filter = src.texture_filter
+	if src.material != null:
+		g.material = src.material.duplicate()
 	return g
 
 
 ## 新一关开好之后开演（`_tutor_reopen` 里，第一份新镜像已落地）。协程、调用方不 await。
-## 换关有章节提示（整屏横带）就先等它播完：这期间替身让画面停在上一关，提示收起后才连着变过去。
-## 演的全程导演按住游标：第一句台词等画面停稳才冒
+## 换关有章节提示就先等它播完：这期间替身让画面停在上一关，提示收起后才连着变过去。
+## 演的全程导演按住游标：第一句台词等画面停稳才冒。
+## 被打断（换关 / 重置本关 / 返回主菜单 / 拆局）一律走 `_tutor_morph_abort`：代际 +1，这里每次醒来先核
 func _tutor_morph_start(m: Dictionary) -> void:
 	if board == null:
 		return
 	if m.is_empty():
 		_tutor_resnap()   ## 抄不到旧盘面：`_open_tutor_level` 已经照常换了活跃格，镜头按新镜像直接就位
 		return
+	_tutor_morph_gen += 1
+	var gen := _tutor_morph_gen
 	var lid := _loop_id
+	_tutor_morphing = true
 	var cid := _tutor_cell_id(int(human_players[0])) if not human_players.is_empty() else -1
 	_tutor_cells_held = true
 	if cid >= 0:
@@ -1845,24 +1917,31 @@ func _tutor_morph_start(m: Dictionary) -> void:
 		_director.hold(true)
 	## 新一关的细胞节点要等 `_sync_cells` 建出来、落好脚。**等一帧不一定够**：`process_frame` 信号
 	## 先于各节点的 `_process` 发，醒来时这一帧的 `_sync_cells` 还没跑（真机连拍抓到：主细胞不走、原地的细胞闪一下）
-	while _loop_id == lid and mirror != null and _cell_nodes.size() < mirror.cells.size():
+	while _tutor_morph_live(lid, gen) and mirror != null and _cell_nodes.size() < mirror.cells.size():
 		await get_tree().process_frame
-	while _director != null and is_instance_valid(_director) and _director._chapter_busy and _loop_id == lid:
+	while _tutor_morph_live(lid, gen) and _director != null and is_instance_valid(_director) and _director._chapter_busy:
 		await get_tree().process_frame
-	if _loop_id != lid:
-		return   ## 又换了关 / 拆了局：`_tutor_morph_abort` 已经收过替身
+	if not _tutor_morph_live(lid, gen):
+		return
 	## ① 一起动：活跃集换过去（board 自己淡出 / 按环浮现）、镜头补间、格与细胞的替身各自退场、玩家那只走过去
-	board.set_active_tiles(_stage.active_tiles())
+	var want: Array = _stage.active_tiles()
+	var settle := maxf(TUTOR_MORPH_SECS, _tutor_reveal_secs(want))
+	board.set_active_tiles(want)
 	_tutor_layers_seen = CWTutorLayers.current()
 	_tutor_camera(TUTOR_MORPH_SECS)
-	_tutor_morph_tiles(m["tiles"])
+	settle = maxf(settle, _tutor_morph_tiles(m["tiles"]))
 	var steady := _tutor_morph_cells(m["cells"], cid)
 	var walker: Sprite2D = m["player"]
 	if walker != null and cid >= 0 and cid < _cell_nodes.size():
+		var to := _cell_nodes[cid] as Node2D
+		## 往前排走（屏幕下方）会被沿途与落点那几排格盖住：z 取新旧两处里大的那个（11-01 复核）
+		walker.z_index = maxi(walker.z_index, to.z_index)
 		var tw := walker.create_tween().set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
-		tw.tween_property(walker, "position", (_cell_nodes[cid] as Node2D).position, TUTOR_MORPH_SECS)
-	await get_tree().create_timer(TUTOR_MORPH_SECS).timeout
-	if _loop_id != lid:
+		tw.tween_property(walker, "position", to.position, TUTOR_MORPH_SECS)
+	## 计时器随暂停停（process_always = false）：替身的补间都会被暂停冻住，计时器不停的话
+	## 暂停菜单底下就把替身收了、真身却因 `_process` 停着露不出来（11-01 复核）
+	await get_tree().create_timer(TUTOR_MORPH_SECS, false).timeout
+	if not _tutor_morph_live(lid, gen):
 		return
 	## ② 玩家那只落位：真身接替替身，新出场的细胞淡入；原地没变的那几只直接换成真身、不演
 	_tutor_cells_held = false
@@ -1874,36 +1953,64 @@ func _tutor_morph_start(m: Dictionary) -> void:
 			if (i != cid or walker == null) and not steady.has(i) and bool(c["alive"]) and board.is_active(c["pos"]):
 				_pop_in(_cell_nodes[i])
 	await get_tree().process_frame   ## 真身下一帧才画出来：替身多留这一帧，交接处不闪
-	if _loop_id != lid:
+	if not _tutor_morph_live(lid, gen):
 		return
 	if walker != null:
 		_tutor_ghost_drop(walker)
 	for g in steady.values():
 		_tutor_ghost_drop(g)
-	## 新格的浮现与格替身的淡出按环错峰，比玩家那一走长：都走完了导演才放手
-	await get_tree().create_timer(maxf(0.0, _tutor_morph_settle() - TUTOR_MORPH_SECS)).timeout
-	if _loop_id != lid:
+	## 新格的浮现与格替身的淡出按环错峰，可能比玩家那一走长：都走完了导演才放手
+	await get_tree().create_timer(maxf(0.0, settle - TUTOR_MORPH_SECS), false).timeout
+	if not _tutor_morph_live(lid, gen):
 		return
+	_tutor_morphing = false
 	_tutor_morph_clear()
 	if _director != null and is_instance_valid(_director):
 		_director.hold(false)
 
 
+## 这一段过渡还算数吗：没换局（`_loop_id`）、也没被 `_tutor_morph_abort` 打断（`_tutor_morph_gen`）
+func _tutor_morph_live(lid: int, gen: int) -> bool:
+	return _loop_id == lid and _tutor_morph_gen == gen
+
+
+## 换成 `want` 这一批活跃格时，新进来的格要多久才浮现完（同 `board.set_active_tiles` 的错峰口径）。
+## 必须在换集合**之前**算：换过之后就分不出哪些是新进来的
+func _tutor_reveal_secs(want: Array) -> float:
+	var fresh: Array = []
+	for c: Vector2i in want:
+		if not board.is_active(c):
+			fresh.append(c)
+	if fresh.is_empty():
+		return 0.0
+	return board.ACTIVE_FADE + _max_delay(board.ring_delays(fresh, board.ACTIVE_RING_DELAY))
+
+
 ## 格的替身：新一关里**还露着、长得也一样**的格当场撤掉（底下那格本来就是这个样子）；
-## 变了样的（癌变 / 净化 / 换了特殊格）和离开活跃集的，按环错峰淡出 —— 前者露出底下的新样子，
-## 后者与底下那格的淡出同步，看着就是这一格慢慢隐去
-func _tutor_morph_tiles(ghosts: Dictionary) -> void:
+## 变了样的（癌变 / 净化 / 换了特殊格 / 进度环与覆膜变了）和离开活跃集的，按环错峰淡出 ——
+## 前者露出底下的新样子，后者与底下那格的淡出同步，看着就是这一格慢慢隐去。返回最后一格淡完要多久
+func _tutor_morph_tiles(ghosts: Dictionary) -> float:
 	var fading: Array = []
 	for c: Vector2i in ghosts:
 		var g: Sprite2D = ghosts[c]
 		var tile: Sprite2D = board.tile_sprite(c)
-		if board.is_active(c) and tile != null and tile.texture == g.texture and tile.frame == g.frame:
+		if board.is_active(c) and tile != null and _tutor_tile_look(c, tile) == g.get_meta("look"):
 			_tutor_ghost_drop(g)
 		else:
 			fading.append(c)
+	if fading.is_empty():
+		return 0.0
 	var delays: Dictionary = board.ring_delays(fading, board.ACTIVE_RING_DELAY)
 	for c: Vector2i in fading:
 		_tutor_ghost_fade(ghosts[c], delays.get(c, 0.0))
+	return board.ACTIVE_FADE + _max_delay(delays)
+
+
+static func _max_delay(delays: Dictionary) -> float:
+	var top := 0.0
+	for d: float in delays.values():
+		top = maxf(top, d)
+	return top
 
 
 ## 细胞的替身：新一关里有一只同一张图、站在同一处的，留到玩家落位时直接换成真身（返回 {下标: 替身}）；
@@ -1934,11 +2041,6 @@ func _tutor_same_cell(g: Sprite2D, player_cid: int, taken: Dictionary) -> int:
 	return -1
 
 
-## 新进活跃集的格浮现完、格替身淡完，一共要多久（从开演算起）
-func _tutor_morph_settle() -> float:
-	return board.ACTIVE_FADE + board.ACTIVE_RING_DELAY * float(board.active_radius + 1)
-
-
 func _tutor_ghost_fade(g: Sprite2D, delay: float) -> void:
 	var tw := g.create_tween()   ## 补间挂在替身自己身上：替身被提前收掉，补间跟着停
 	if delay > 0.0:
@@ -1953,13 +2055,25 @@ func _tutor_ghost_drop(g: Sprite2D) -> void:
 		g.queue_free()
 
 
-## 演到一半被换关 / 拆局打断：替身全收、真身放回来、导演放手（不放的话新一关同下标那只细胞永远藏着）
-func _tutor_morph_abort() -> void:
-	if _tutor_morph.is_empty() and not _tutor_cells_held:
+## 演到一半被打断（换关 / 重置本关 / 返回主菜单 / 拆局）：代际 +1，还在 await 里的那一段醒来就退出；
+## 真身放回来、导演放手（11-01 复核：过渡中按「重置本关」，导演永远按着游标、细胞永远藏着，整关卡死）。
+## 替身当场收掉；`fade_secs` > 0 = 跟着返场一起淡掉（返场时 `_process` 已停，当场收会让旧盘面「啪」地换成新的）
+func _tutor_morph_abort(fade_secs := 0.0) -> void:
+	if not _tutor_morphing and _tutor_morph.is_empty():
 		return
-	_tutor_morph_clear()
+	_tutor_morph_gen += 1
+	_tutor_morphing = false
 	_tutor_cells_held = false
 	_tutor_fx_cid = -1
+	if fade_secs > 0.0:
+		for g in _tutor_morph:
+			if is_instance_valid(g):
+				var tw := (g as Node).create_tween()
+				tw.tween_property(g, "modulate:a", 0.0, fade_secs)
+				tw.tween_callback((g as Node).queue_free)
+		_tutor_morph = []
+	else:
+		_tutor_morph_clear()
 	if _director != null and is_instance_valid(_director):
 		_director.hold(false)
 
@@ -2010,7 +2124,7 @@ func _sync_tutor_layers() -> void:
 	## Kevin 2026-09-19：「镜头只需要在关卡开始的时候调中一次，不需要一直跟随细胞」。
 	## 另外两种要重算的事件各自显式调：地图浮现（`_tutor_reveal`）、换局 / 重置 / 重心平移（直接就位）
 	var layers_now := CWTutorLayers.current()
-	if layers_now != _tutor_layers_seen:
+	if layers_now != _tutor_layers_seen and not _tutor_morphing:   ## 过渡开演时自己按新层表取景
 		_tutor_layers_seen = layers_now
 		_tutor_camera(TUTOR_CAM_SECS)
 	## 「切换种类」（PRD:375，第五关 Step2，S5）跟着其余 ui 层走同一条路：
@@ -2290,6 +2404,11 @@ func fade_out(seconds: float) -> void:
 	if bridge != null:
 		bridge.abort()
 	_fading = true
+	## 关间过渡演到一半就返回主菜单：过渡就此打住（不然它会接着换活跃格、抢镜头），替身跟着返场一起淡；
+	## 教程镜头的补间也停 —— 它建得比 main.gd 返场那条晚，每帧都会把镜头抢回去（11-01 复核）
+	_tutor_morph_abort(seconds)
+	if _tutor_cam_tween != null and _tutor_cam_tween.is_valid():
+		_tutor_cam_tween.kill()
 	board.set_marks({})                      ## 高亮自己会淡掉
 	board.clear_turn_mark()
 	board.fade_to_healthy(seconds)
@@ -2350,6 +2469,8 @@ func teardown() -> void:
 	if _settings_btn != null:
 		_settings_btn.visible = false   ## 菜单背景里不该留着它（每局 _prepare_ui 再亮）
 	_tutor_morph_abort()     ## 关间过渡演到一半就返回主菜单：替身不能留在菜单背景里
+	if _tutor_cam_tween != null and _tutor_cam_tween.is_valid():
+		_tutor_cam_tween.kill()   ## 教程镜头的补间不许活过拆局：菜单的镜头归 main.gd
 	## 播放器和控制条是这一份回放的，拆局就得撒手。**不撒手的话下一局带着走**：
 	## 控制条留在屏幕上；更糟的是 `_unhandled_input` 见 `replay != null` 就把方向键
 	## 和空格当播放键吃掉 —— 空格正是「结束回合」。（2026-09-10 顺着小字那条查出来的）

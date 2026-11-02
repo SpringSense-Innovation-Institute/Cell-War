@@ -185,16 +185,16 @@ static func blend(camera: Camera2D, board: Node2D, k: float) -> void:
 		MENU_LOOK_AT.lerp(GAME_LOOK_AT, k), MENU_ANCHOR.lerp(GAME_ANCHOR, k))
 
 
-## 两组**任意**取景参数之间插值（教程关间 / 关内换 step 的镜头补间走它）。
+## 两组**任意**取景参数插到 k 处的那一组（教程关间 / 关内换 step 的镜头补间每帧拿它去 `apply`，
+## 同时记下「镜头此刻停在哪」，下一段补间接上来时从这儿起）。
 ## 口径与 `blend()` 一字不差：插的是「看点 / 锚点 / zoom」，**不是相机的 position**，
 ## 而且 zoom 走几何（对数）插值 —— 理由见 `blend()` 上面那三段，这里不再抄一遍
-static func blend_to(camera: Camera2D, board: Node2D, a: Dictionary, b: Dictionary,
-		k: float) -> void:
+static func mix(a: Dictionary, b: Dictionary, k: float) -> Dictionary:
 	var za: float = float(a["zoom"])
 	var zb: float = float(b["zoom"])
-	apply(camera, board, za * pow(zb / za, k),
-		(a["look_at"] as Vector2).lerp(b["look_at"] as Vector2, k),
-		(a["anchor"] as Vector2).lerp(b["anchor"] as Vector2, k))
+	return { "zoom": za * pow(zb / za, k),
+		"look_at": (a["look_at"] as Vector2).lerp(b["look_at"] as Vector2, k),
+		"anchor": (a["anchor"] as Vector2).lerp(b["anchor"] as Vector2, k) }
 
 
 ## **PRD 通用规则 13**（PRD:65，04:08 版新增）：禁止玩家向镜头外 / 被镜头框切割的格子迁移。
