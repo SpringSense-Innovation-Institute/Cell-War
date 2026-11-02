@@ -18008,37 +18008,66 @@ func t_entry_smoke_tutorial() -> void:
 	await process_frame
 	var k := m.kernel as CWKernelInProc
 	check(k != null, "教程标志位仍能起一局（空壳：导演由 commit B 接上）")
-	## ---- 关间过渡（Kevin 2026-09-20「关到关之间的动画加上，现在是闪切」）：目录跳到第二关 = 跨关换局 ----
+	## ---- 关间过渡：目录跳到第二关 = 跨关换局（Kevin 2026-11-01「地图不要重新加载」：连贯转场、一格不灭）----
 	await _tutor_pump(2)                         ## 第一关的细胞节点要先建出来（_sync_cells 每帧一次）
 	var old_cid: int = m._tutor_cell_id(0)
 	check(old_cid >= 0 and (m._cell_nodes[old_cid] as Sprite2D).texture != null,
 		"第一关玩家那只细胞在棋盘上（替身要抄它的贴图）")
-	m._tutor_next_level("c1_l2", false)          ## 目录跳关那条路：fresh_cursor；同一章 ⇒ 没有章节提示，当帧就飞
+	var old_active: Array = m.board.active_tiles()
+	var want_ghosts := 0                         ## 替身 = 露着的活跃格 + 看得见的细胞
+	for c in old_active:
+		if m.board.tile_shown(c):
+			want_ghosts += 1
+	for node in m._cell_nodes:
+		if (node as Sprite2D).visible:
+			want_ghosts += 1
+	var old_foot: Vector2 = (m._cell_nodes[old_cid] as Node2D).position
+	## 目录跳关那条路：fresh_cursor、同一章 ⇒ 没有章节提示。这条路上换局是同步的，返回时新一局已经开好。
+	## **从计时器回调里换**：真通关是等结算气泡的计时器到点才换局，那时这一帧的 `_process` 已经跑过了 ——
+	## 过渡要多等一帧新细胞才建出来。在帧首换就测不出「等一帧不够」那个坑（11-01 变异检验漏过的）
+	await create_timer(0.05).timeout
+	m._tutor_next_level("c1_l2", false)
+	var walker: Sprite2D = null                  ## 玩家那只的替身：抄的是它此刻的位置
+	for g in m._tutor_morph:
+		if (g as Node).get_parent() == m._cells_root and (g as Node2D).position == old_foot:
+			walker = g
+	var dark_old := 0
+	for c in old_active:
+		if not m.board.tile_shown(c):
+			dark_old += 1
+	check(dark_old == 0 and m._tutor_morph.size() == want_ghosts,
+		"★ 换关那一刻地图不重新加载：上一关的 %d 格一格没灭（灭了 %d 格），旧盘面抄成替身盖着（%d / %d 个）"
+			% [old_active.size(), dark_old, m._tutor_morph.size(), want_ghosts])
 	await process_frame
 	var new_cid: int = m._tutor_cell_id(0)
-	var new_pos: Vector2i = (m.mirror.cells[new_cid] as Dictionary)["pos"]
-	check(m._tutor_glide.size() == 2 and m._tutor_fx_cid == new_cid and not m.board.tile_shown(new_pos),
-		"★ 换关那一刻：替身（格 + 细胞）在飞、真身让位、脚下那格先不浮现（实测替身 %d 个）" % m._tutor_glide.size())
-	check(m._director._held and m._director._at == 0,
-		"飞行中导演按住游标（关首那条 state 照旧办掉、第一句台词等地图到齐）")
-	## ★ 主细胞先就位、地图再浮现（Kevin 2026-09-20 第二条）：飞行中其余活跃格一格都还没开始浮现，别的细胞也按住
-	var shown_early := 0
-	for c in m.board.active_tiles():
-		if c != new_pos and m.board.tile_shown(c):
-			shown_early += 1
-	check(shown_early == 0 and m._tutor_cells_held,
-		"★ 飞行中剩余地图一格没浮现（实测 %d 格已亮）、别的细胞按住（_tutor_cells_held）" % shown_early)
-	await create_timer(CWMatch.TUTOR_GLIDE_SECS + 0.25).timeout
-	check(m._tutor_glide.is_empty() and m._tutor_fx_cid == -1 and m.board.tile_shown(new_pos)
-			and not m._tutor_cells_held and m._director._held,
-		"飞到位：替身收掉、真身归位、脚下那格亮起、别的细胞放行；地图还在浮现所以导演仍按着")
+	check(m._tutor_cells_held and m._tutor_fx_cid == new_cid and m._director._held and m._director._at == 0,
+		"演的时候新细胞先按住、玩家那只真身让位给替身、导演按住游标（第一句台词等画面停稳）")
+	await create_timer(CWMatch.TUTOR_MORPH_SECS * 0.5).timeout
+	dark_old = 0
+	for c in old_active:
+		if m.board.is_active(c) and not m.board.tile_shown(c):
+			dark_old += 1
+	check(dark_old == 0 and str(m.board.active_tiles()) != str(old_active),
+		"★ 演到一半：活跃集已换成新一关的，新旧都有的格一直亮着（灭了 %d 格）" % dark_old)
+	## 第一关站 (-5,-1)、第二关站 (-4,-1)：替身此刻该在两格之间（09-20 那版是飞，11-01 第一版因为
+	## 等一帧不够、新细胞节点还没建出来，替身原地不动、落位时真身一下跳过去 —— 真机连拍抓到的）
+	var new_foot: Vector2 = (m._cell_nodes[new_cid] as Node2D).position
+	check(walker != null and is_instance_valid(walker)
+			and walker.position.x > minf(old_foot.x, new_foot.x) + 1.0
+			and walker.position.x < maxf(old_foot.x, new_foot.x) - 1.0,
+		"★ 演到一半：玩家那只的替身正从旧格走向新格（%s → %s，此刻 %s）"
+			% [str(old_foot), str(new_foot), str(walker.position) if walker != null and is_instance_valid(walker) else "没有替身"])
+	await create_timer(CWMatch.TUTOR_MORPH_SECS * 0.5 + 0.25).timeout
+	check(not m._tutor_cells_held and m._tutor_fx_cid == -1 and (m._cell_nodes[new_cid] as Sprite2D).visible,
+		"玩家那只走到新格：真身接替替身、别的细胞放行")
 	await create_timer(m.board.ACTIVE_FADE + 0.8).timeout
-	var hidden_other := 0
+	var hidden_new := 0
 	for c in m.board.active_tiles():
-		if c != new_pos and not m.board.tile_shown(c):
-			hidden_other += 1
-	check(hidden_other == 0 and not m._director._held,
-		"其余活跃格按环浮现完毕（还藏着 %d 格）、导演放手" % hidden_other)
+		if not m.board.tile_shown(c):
+			hidden_new += 1
+	check(hidden_new == 0 and m._tutor_morph.is_empty() and not m._director._held,
+		"新一关的活跃格全亮（还藏着 %d 格）、替身收干净（剩 %d 个）、导演放手"
+			% [hidden_new, m._tutor_morph.size()])
 	## **改判**：原断言「镜像 7 格 / 半径 1 / active_radius 1」→「127 格 / 半径 6」。
 	## 半径恒 6、小棋盘只是**活跃格遮罩**，这一条与教程重做无关，原样留着
 	check(m.mirror != null and m.mirror.tiles.size() == CWData.TOTAL_TILES
@@ -24277,7 +24306,7 @@ func _s9b_live() -> void:
 	check(m.bridge == bridge_before and str(m._stage.level.get("id", "")) == "c3_l6",
 		"★ 间章→第六关承接活局：桥没换、剧本已切到 c3_l6（重开那条路必换桥；实测 level %s / 桥没换 %s）"
 			% [str(m._stage.level.get("id", "")), str(m.bridge == bridge_before)])
-	check(m._tutor_glide.is_empty() and not m._tutor_cells_held,
+	check(m._tutor_morph.is_empty() and not m._tutor_cells_held,
 		"没有替身在飞、也没按住细胞（同一盘面不需要过渡）")
 	## 承接那一刻 `_tutor_npc_rewind` 把游标 / 脚本全清；这 30 帧里第六关的钩子会重新喂脚本（plan 非空是对的），
 	## 但还没轮到任何免疫作答 ⇒ 游标必须还在 0

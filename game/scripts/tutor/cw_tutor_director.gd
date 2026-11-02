@@ -142,7 +142,7 @@ func open(lv: Dictionary, seat: int) -> void:
 	## 它再也没机会把这一位放下。不在这儿清的话，下一关的游标永远被 `_tick` 开头
 	## 那条 `if _chapter_busy: return` 按死 —— 真机上的表现是「进了间章却一拍也不演」
 	_chapter_busy = false
-	_held = false        ## 上一关关间过渡的替身要是还在飞，`_tutor_glide_abort` 已经放手；这儿再保一次
+	_held = false        ## 上一关关间过渡要是还在演，`_tutor_morph_abort` 已经放手；这儿再保一次
 	_advising = false
 	_hook_depth = 0      ## 上一关挂死的钩子协程不许按住新关的游标
 	_beat_row = null     ## 挂死的那一条 beat 也不许再把闸撑开
